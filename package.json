@@ -16,9 +16,10 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "./node_modules/.bin/tsc && chmod +x dist/index.js",
     "dev": "tsx src/index.ts",
     "start": "tsx src/index.ts",
+    "prepare": "npm run build",
     "prepack": "npm run build"
   },
   "repository": {
