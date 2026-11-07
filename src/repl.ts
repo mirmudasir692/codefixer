@@ -15,6 +15,15 @@ export async function startRepl() {
     output: process.stdout,
   });
 
+  // Ctrl+C while NOT at the prompt (i.e. mid-turn) → exit cleanly.
+  // The try/catch around rl.question below handles the "at the prompt" case.
+  const onSigint = () => {
+    console.log("\nbye.");
+    rl.close();
+    process.exit(0);
+  };
+  process.on("SIGINT", onSigint);
+
   console.log(`Ollama Code Agent (${MODEL_ID}) — type 'exit' to quit.\n`);
   console.log(`Modes:`);
   console.log(`  <prompt>              single turn (read / explain)`);
@@ -25,86 +34,99 @@ export async function startRepl() {
 
   let history = "";
 
-  while (true) {
-    const input = await rl.question("> ");
-    if (input.trim().toLowerCase() === "exit") break;
-    if (!input.trim()) continue;
+  try {
+    while (true) {
+      // ── Read input (Ctrl+C here throws AbortError) ───────────────────
+      let input: string;
+      try {
+        input = await rl.question("> ");
+      } catch (err: any) {
+        if (err?.code === "ABORT_ERR" || err?.name === "AbortError") {
+          console.log("\nbye.");
+          break;
+        }
+        throw err;
+      }
 
-    // ── Explicit /goal ─────────────────────────────────────────────────
-    if (input.startsWith("/goal ")) {
-      const parsed = parseGoalCommand(input);
-      if (!parsed) {
-        console.log('Usage: /goal <prompt> [--verify "<cmd>"] [--turns N]');
+      if (input.trim().toLowerCase() === "exit") break;
+      if (!input.trim()) continue;
+
+      // ── Explicit /goal ───────────────────────────────────────────────
+      if (input.startsWith("/goal ")) {
+        const parsed = parseGoalCommand(input);
+        if (!parsed) {
+          console.log('Usage: /goal <prompt> [--verify "<cmd>"] [--turns N]');
+          continue;
+        }
+        try {
+          const result = await runGoalLoop(parsed.goal, {
+            maxTurns: parsed.maxTurns ?? 10,
+            maxHistoryChars: MAX_HISTORY_CHARS,
+          });
+          console.log(
+            `\n[loop ended: ${result.status} after ${result.turns} turn(s)]`,
+          );
+          history = result.history;
+        } catch (err: any) {
+          console.error("\n[loop error]", err.message, "\n");
+        }
         continue;
       }
-      try {
-        const result = await runGoalLoop(parsed.goal, {
-          maxTurns: parsed.maxTurns ?? 10,
-          maxHistoryChars: MAX_HISTORY_CHARS,
-        });
-        console.log(
-          `\n[loop ended: ${result.status} after ${result.turns} turn(s)]`,
-        );
-        history = result.history;
-      } catch (err: any) {
-        console.error("\n[loop error]", err.message, "\n");
-      }
-      continue;
-    }
 
-    // ── Auto-route action prompts → goal loop ──────────────────────────
-    if (looksLikeAction(input)) {
-      const verifyCommand = await detectVerifyCommand();
+      // ── Auto-route action prompts → goal loop ────────────────────────
+      if (looksLikeAction(input)) {
+        const verifyCommand = await detectVerifyCommand();
 
-      // Baseline check: warn if verifier was already failing before this task.
-      if (verifyCommand) {
-        const baseline = await verifyGoal({ prompt: "", verifyCommand });
-        if (!baseline.ok) {
+        if (verifyCommand) {
+          const baseline = await verifyGoal({ prompt: "", verifyCommand });
+          if (!baseline.ok) {
+            console.log(
+              `[note: \`${verifyCommand}\` was already failing (exit ${baseline.exitCode}) before this task.]`,
+            );
+          }
           console.log(
-            `[note: \`${verifyCommand}\` was already failing (exit ${baseline.exitCode}) before this task.]`,
+            `[auto-loop: I'll keep working until \`${verifyCommand}\` passes. Max ${AUTO_MAX_TURNS} turns.]`,
+          );
+        } else {
+          console.log(
+            `[auto-loop: no verifier found — I'll stop when the task looks done. Max ${AUTO_MAX_TURNS} turns.]`,
           );
         }
-        console.log(
-          `[auto-loop: I'll keep working until \`${verifyCommand}\` passes. Max ${AUTO_MAX_TURNS} turns.]`,
-        );
-      } else {
-        console.log(
-          `[auto-loop: no verifier found — I'll stop when the task looks done. Max ${AUTO_MAX_TURNS} turns.]`,
-        );
+
+        try {
+          const result = await runGoalLoop(
+            {
+              prompt: input,
+              verifyCommand,
+              description: input,
+            },
+            { maxTurns: AUTO_MAX_TURNS, maxHistoryChars: MAX_HISTORY_CHARS },
+          );
+          console.log(
+            `\n[loop ended: ${result.status} after ${result.turns} turn(s)]`,
+          );
+          history = result.history;
+        } catch (err: any) {
+          console.error("\n[loop error]", err.message, "\n");
+        }
+        continue;
       }
 
+      // ── Single turn (question / explanation) ────────────────────────
       try {
-        const result = await runGoalLoop(
-          {
-            prompt: input,
-            verifyCommand,
-            description: input,
-          },
-          { maxTurns: AUTO_MAX_TURNS, maxHistoryChars: MAX_HISTORY_CHARS },
-        );
-        console.log(
-          `\n[loop ended: ${result.status} after ${result.turns} turn(s)]`,
-        );
-        history = result.history;
+        const { text, transcriptLine } = await runTurn(input, history);
+        console.log("\n" + text);
+        history = (history + "\n" + transcriptLine).slice(-MAX_HISTORY_CHARS);
       } catch (err: any) {
-        console.error("\n[loop error]", err.message, "\n");
+        console.error("\n[error]", err.message, "\n");
       }
-      continue;
-    }
 
-    // ── Single turn (question / explanation) ──────────────────────────
-    try {
-      const { text, transcriptLine } = await runTurn(input, history);
-      console.log("\n" + text);
-      history = (history + "\n" + transcriptLine).slice(-MAX_HISTORY_CHARS);
-    } catch (err: any) {
-      console.error("\n[error]", err.message, "\n");
+      console.log("\n");
     }
-
-    console.log("\n");
+  } finally {
+    process.off("SIGINT", onSigint);
+    rl.close();
   }
-
-  rl.close();
 }
 
 function parseGoalCommand(

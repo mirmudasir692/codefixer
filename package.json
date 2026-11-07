@@ -1,18 +1,40 @@
 {
   "name": "codefixer",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "version": "0.1.0",
+  "description": "A terminal coding agent powered by Mirascope and local Ollama models.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "codefixer": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "tsx src/index.ts"
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "tsx src/index.ts",
+    "prepack": "npm run build"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mirmudasir692/codefixer.git"
   },
-  "keywords": [],
-  "type": "module",
+  "keywords": [
+    "ai",
+    "agent",
+    "cli",
+    "coding-assistant",
+    "ollama",
+    "mirascope",
+    "llm",
+    "qwen"
+  ],
   "bugs": {
     "url": "https://github.com/mirmudasir692/codefixer/issues"
   },
