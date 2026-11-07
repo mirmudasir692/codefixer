@@ -1,3 +1,13 @@
+# Dependencies
 node_modules/
-package-lock.json
+
+# Build output — rebuilt by `prepare` on every install
 dist/
+
+# Packed tarballs from `npm pack`
+*.tgz
+
+# Logs and OS files
+*.log
+npm-debug.log*
+.DS_Store
