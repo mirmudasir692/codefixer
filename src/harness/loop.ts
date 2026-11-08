@@ -3,46 +3,98 @@ import { verifyGoal, formatVerificationFailure } from "./verify.js";
 import { appendAndCompact, formatTurnTranscript } from "./context.js";
 import type { Goal, LoopConfig, LoopResult } from "./types.js";
 
+const HARD_SAFETY_CAP = 20;
+
 export async function runGoalLoop(
   goal: Goal,
   config: LoopConfig = {},
 ): Promise<LoopResult> {
-  const maxTurns = config.maxTurns ?? 10;
+  const hardCap = config.maxTurns ?? HARD_SAFETY_CAP;
   const maxHistoryChars = config.maxHistoryChars ?? 6000;
   const headChars = config.headChars ?? 1500;
   const verbose = config.verbose ?? true;
 
   let history = "";
   let lastAnswer = "";
+  let turn = 0;
 
-  for (let turn = 1; turn <= maxTurns; turn++) {
-    console.log(`\n━━━ Turn ${turn}/${maxTurns} ━━━`);
-    if (goal.description) console.log(`Goal: ${goal.description}`);
+  while (turn < hardCap) {
+    turn++;
+    console.log(`\n━━━ Turn ${turn} (model controls stop) ━━━`);
 
-  const turnPrompt =
-  turn === 1
-    ? `Goal: ${goal.prompt}\n\nBefore acting, briefly outline your plan (1-3 sentences). Then execute it step by step.`
-    : "Continue. Fix the verification failure shown above.";
-    
-    let answer: string;
-    let toolRounds = 0;
+    const turnPrompt =
+      turn === 1
+        ? goal.prompt
+        : "Continue. Fix the verification failure shown above, then call finish.";
+
+    let result;
     try {
-      const result = await runTurn(turnPrompt, history);
-      answer = result.text;
-      toolRounds = result.toolRounds;
-      lastAnswer = answer;
+      result = await runTurn(turnPrompt, history);
     } catch (err: any) {
       console.error(`\n[turn error] ${err.message}`);
       return { status: "aborted", turns: turn, history, lastAnswer };
     }
 
+    lastAnswer = result.text;
     history = appendAndCompact(
       history,
-      formatTurnTranscript(turn, turnPrompt, answer, toolRounds),
+      formatTurnTranscript(turn, turnPrompt, result.text, result.toolRounds),
       maxHistoryChars,
       headChars,
     );
 
+    // ── CASE A: model called finish ────────────────────────────────────
+    if (result.finished) {
+      if (!goal.verifyCommand) {
+        console.log(`\n[✓ model called finish — no verifier, accepting]`);
+        return { status: "completed", turns: turn, history, lastAnswer };
+      }
+
+      if (verbose) console.log(`\n[verify] ${goal.verifyCommand} (after finish)`);
+      const verification = await verifyGoal(goal);
+
+      if (verification.ok) {
+        console.log(
+          `\n[✓ model called finish AND verification passed on turn ${turn}]`,
+        );
+        return { status: "completed", turns: turn, history, lastAnswer };
+      }
+
+      // Model said done, but reality disagrees. Push back.
+      const failure = formatVerificationFailure(verification);
+      console.log(
+        `\n[✗ finish claim REJECTED — exit ${verification.exitCode}]\n` +
+          failure.slice(0, 800),
+      );
+      history = appendAndCompact(
+        history,
+        `### Turn ${turn}: You called finish but verification REJECTED it.\n${failure}`,
+        maxHistoryChars,
+        headChars,
+      );
+      continue;
+    }
+
+    // ── CASE B: model did nothing (no tools, no finish) ────────────────
+    if (result.toolRounds === 0) {
+      if (turn === 1) {
+        // First turn, model just answered a question — treat as completed
+        return { status: "completed", turns: turn, history, lastAnswer };
+      }
+      console.log(
+        `\n[model produced text without tools or finish — nudging]`,
+      );
+      history = appendAndCompact(
+        history,
+        `### Turn ${turn}: You did not call a tool or finish. ` +
+          `If done, call finish. If not, continue working.`,
+        maxHistoryChars,
+        headChars,
+      );
+      continue;
+    }
+
+    // ── CASE C: model did work but didn't call finish ──────────────────
     if (!goal.verifyCommand) {
       return { status: "completed", turns: turn, history, lastAnswer };
     }
@@ -51,7 +103,9 @@ export async function runGoalLoop(
     const verification = await verifyGoal(goal);
 
     if (verification.ok) {
-      console.log(`\n[✓ verification passed on turn ${turn}]`);
+      console.log(
+        `\n[✓ verification passed on turn ${turn} (model didn't call finish — accepting)]`,
+      );
       return { status: "completed", turns: turn, history, lastAnswer };
     }
 
@@ -60,7 +114,6 @@ export async function runGoalLoop(
       `\n[✗ verification failed — exit ${verification.exitCode}]\n` +
         failure.slice(0, 800),
     );
-
     history = appendAndCompact(
       history,
       `### Verification after turn ${turn}\n${failure}`,
@@ -69,6 +122,8 @@ export async function runGoalLoop(
     );
   }
 
-  console.log(`\n[!] Reached maxTurns (${maxTurns}) without passing verification.`);
-  return { status: "turn_limit", turns: maxTurns, history, lastAnswer };
+  console.log(
+    `\n[!] Hard safety cap (${hardCap}) reached without verified finish.`,
+  );
+  return { status: "turn_limit", turns: turn, history, lastAnswer };
 }

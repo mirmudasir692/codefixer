@@ -6,6 +6,7 @@ import {
   writeFileTool,
   editFileTool,
   deleteFileTool,
+  finishTool
 } from "./tools.js";
 
 export const MODEL_ID = "ollama/qwen2.5-agent-7b";
@@ -24,6 +25,7 @@ export const codeAgent = llm.defineCall<{
     writeFileTool,
     editFileTool,
     deleteFileTool,
+    finishTool
   ],
   template: ({ history, input }) => `
 You are a coding agent in a terminal inside the user's project.
