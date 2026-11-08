@@ -53,12 +53,21 @@ export async function runGoalLoop(
       if (verbose) console.log(`\n[verify] ${goal.verifyCommand} (after finish)`);
       const verification = await verifyGoal(goal);
 
-      if (verification.ok) {
-        console.log(
-          `\n[✓ model called finish AND verification passed on turn ${turn}]`,
-        );
-        return { status: "completed", turns: turn, history, lastAnswer };
-      }
+ if (verification.ok) {
+  // Verifier passes, but the model never claimed completion. Push back once.
+  console.log(
+    `\n[? verification passed on turn ${turn}, but model did not call finish]`,
+  );
+  history = appendAndCompact(
+    history,
+    `### Turn ${turn}: Verification passed, but you did not call finish.\n` +
+      `If the task is truly complete, call the finish tool NOW with a summary and files_changed. ` +
+      `If it is not complete, continue working.`,
+    maxHistoryChars,
+    headChars,
+  );
+  continue;
+}
 
       // Model said done, but reality disagrees. Push back.
       const failure = formatVerificationFailure(verification);

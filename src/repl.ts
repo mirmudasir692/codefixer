@@ -5,11 +5,13 @@ import { runGoalLoop } from "./harness/loop.js";
 import { verifyGoal } from "./harness/verify.js";
 import { looksLikeAction, detectVerifyCommand } from "./harness/auto.js";
 import type { Goal } from "./harness/types.js";
+import { resetSession } from "./session.js";
 
 const MAX_HISTORY_CHARS = 6000;
 const AUTO_MAX_TURNS = 10;
 
 export async function startRepl() {
+   resetSession();
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
@@ -77,17 +79,25 @@ export async function startRepl() {
       if (looksLikeAction(input)) {
         const verifyCommand = await detectVerifyCommand();
 
-        if (verifyCommand) {
-          const baseline = await verifyGoal({ prompt: "", verifyCommand });
-          if (!baseline.ok) {
-            console.log(
-              `[note: \`${verifyCommand}\` was already failing (exit ${baseline.exitCode}) before this task.]`,
-            );
-          }
-          console.log(
-            `[auto-loop: I'll keep working until \`${verifyCommand}\` passes. Max ${AUTO_MAX_TURNS} turns.]`,
-          );
-        } else {
+  if (verifyCommand) {
+  const baseline = await verifyGoal({ prompt: "", verifyCommand });
+  if (!baseline.ok) {
+    console.log(
+      `[note: \`${verifyCommand}\` was already failing (exit ${baseline.exitCode}) before this task — the loop will fix that first.]`,
+    );
+  } else {
+    console.log(
+      `[⚠ WARNING: \`${verifyCommand}\` ALREADY PASSES on this codebase.\n` +
+      `   It cannot prove your task was completed — only that the codebase is still valid.\n` +
+      `   For feature tasks, use an explicit verifier, e.g.:\n` +
+      `     /goal <prompt> --verify "grep -q '<expectedString>' <file>"\n` +
+      `   Or run without a verifier — the model will stop when it calls finish.]`,
+    );
+  }
+  console.log(
+    `[auto-loop: I'll keep working until the model calls finish AND \`${verifyCommand}\` passes. Max ${AUTO_MAX_TURNS} turns.]`,
+  );
+} else {
           console.log(
             `[auto-loop: no verifier found — I'll stop when the task looks done. Max ${AUTO_MAX_TURNS} turns.]`,
           );

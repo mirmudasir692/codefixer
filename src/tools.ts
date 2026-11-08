@@ -5,8 +5,11 @@ import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import * as readline from "node:readline/promises";
 import path from "node:path";
+import { markRead, markWritten, hasBeenRead } from "./session.js";
 
 const execAsync = promisify(exec);
+
+const DEFAULT_READ_LIMIT = 2000;
 
 function truncate(text: string, max = 5000): string {
   if (text.length <= max) return text;
@@ -34,6 +37,24 @@ async function confirm(question: string): Promise<boolean> {
   const answer = await rl.question(question);
   rl.close();
   return answer.trim().toLowerCase() === "y";
+}
+
+async function confirmDestructive(question: string): Promise<boolean> {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  const answer = await rl.question(question);
+  rl.close();
+  return answer.trim() === "yes-really";
+}
+
+/** Add line-number prefixes so the model can reference exact lines. */
+function numberLines(lines: string[], startLine: number): string {
+  const width = String(startLine + lines.length - 1).length;
+  return lines
+    .map((line, i) => `${String(startLine + i).padStart(width)}\t${line}`)
+    .join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -73,29 +94,59 @@ export const listDirectoryTool = llm.defineTool({
 });
 
 // ---------------------------------------------------------------------------
-// read_file
+// read_file — supports offset/limit, and marks the file as read
 // ---------------------------------------------------------------------------
 
 export const readFileTool = llm.defineTool({
   name: "read_file",
-  description: "Read a text file. Use before editing or explaining a file.",
+  description:
+    "Read a text file. Returns line-numbered content. " +
+    "Use offset and limit to read a specific line range from a large file. " +
+    "Line numbers are 1-indexed and match what insert_file/replace_lines expect.",
   validator: z.object({
     path: z.string().describe("File path relative to project root"),
+    offset: z
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe("Start line (1-indexed). Defaults to line 1."),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe(`Max lines to return. Defaults to ${DEFAULT_READ_LIMIT}.`),
   }),
-  tool: async ({ path: filePath }) => {
+  tool: async ({ path: filePath, offset, limit }) => {
     try {
       const resolved = assertInsideProject(filePath);
-      const content = await readFile(resolved, "utf-8");
+      const raw = await readFile(resolved, "utf-8");
+      const lines = raw.split("\n");
+      const totalLines = lines.length;
+
+      const start = (offset ?? 1) - 1;
+      const count = limit ?? DEFAULT_READ_LIMIT;
+      const slice = lines.slice(start, start + count);
+
+      markRead(filePath); // ← track for the write_file guard
+
       return {
         ok: true,
         path: filePath,
-        content: truncate(content),
+        totalLines,
+        offset: start + 1,
+        returnedLines: slice.length,
+        content: numberLines(slice, start + 1),
         error: null,
       };
     } catch (err: unknown) {
       return {
         ok: false,
         path: filePath,
+        totalLines: null,
+        offset: null,
+        returnedLines: null,
         content: null,
         error: errorMessage(err),
       };
@@ -170,14 +221,16 @@ export const runShellTool = llm.defineTool({
 });
 
 // ---------------------------------------------------------------------------
-// write_file — create new file or fully overwrite existing
+// write_file — create new, or overwrite existing ONLY if it has been read
 // ---------------------------------------------------------------------------
 
 export const writeFileTool = llm.defineTool({
   name: "write_file",
   description:
     "Create a NEW file or completely overwrite an existing one. " +
-    "Prefer edit_file for existing files — this tool replaces the entire contents.",
+    "You MUST call read_file on an existing file BEFORE calling write_file on it — " +
+    "this is enforced and the call will be rejected otherwise. " +
+    "Prefer edit_file / insert_file / replace_lines for partial changes.",
   validator: z.object({
     path: z.string().describe("File path"),
     content: z.string().describe("Full file content"),
@@ -194,20 +247,70 @@ export const writeFileTool = llm.defineTool({
       };
     }
 
-    const approved = await confirm(
-      `\n[write_file] ${filePath} (${content.length} chars). Allow? [y/N] `,
-    );
-    if (!approved) {
+    // ── Detect existing file and its size ────────────────────────────
+    let exists = false;
+    let existingSize = 0;
+    try {
+      const existing = await readFile(filePath, "utf-8");
+      exists = true;
+      existingSize = existing.length;
+    } catch {
+      // file does not exist — this is a create operation
+    }
+
+    // ── GUARD 1: refuse to overwrite an unread file ──────────────────
+    if (exists && !hasBeenRead(filePath)) {
       return {
         ok: false,
         path: filePath,
         bytesWritten: null,
-        error: "User denied write permission.",
+        error:
+          `Refusing to overwrite ${filePath}: you have not read this file in this session. ` +
+          `Call read_file on ${filePath} first. ` +
+          `If you only need to change part of it, use edit_file, insert_file, or replace_lines ` +
+          `instead of write_file.`,
       };
+    }
+
+    // ── GUARD 2: warn if new content looks like destructive truncation ──
+    if (exists && existingSize > 200 && content.length < existingSize / 2) {
+      const dropPct = Math.round((1 - content.length / existingSize) * 100);
+      console.log(
+        `\n⚠⚠⚠  DESTRUCTIVE WRITE DETECTED\n` +
+          `   ${filePath} is ${existingSize} chars on disk.\n` +
+          `   You are about to replace it with ${content.length} chars (${dropPct}% smaller).\n` +
+          `   First 120 chars of NEW content:\n   "${content.slice(0, 120).replace(/\n/g, "\\n")}"\n` +
+          `   This usually means the model hallucinated the file's contents.\n` +
+          `   Type "yes-really" to confirm, anything else to abort.`,
+      );
+      const confirmed = await confirmDestructive(`> `);
+      if (!confirmed) {
+        return {
+          ok: false,
+          path: filePath,
+          bytesWritten: null,
+          error:
+            `User denied destructive write to ${filePath}. ` +
+            `The file was NOT modified. Use edit_file, insert_file, or replace_lines for partial changes.`,
+        };
+      }
+    } else {
+      const approved = await confirm(
+        `\n[write_file] ${filePath} (${content.length} chars). Allow? [y/N] `,
+      );
+      if (!approved) {
+        return {
+          ok: false,
+          path: filePath,
+          bytesWritten: null,
+          error: "User denied write permission.",
+        };
+      }
     }
 
     try {
       await writeFile(filePath, content, "utf-8");
+      markWritten(filePath);
       return {
         ok: true,
         path: filePath,
@@ -226,7 +329,7 @@ export const writeFileTool = llm.defineTool({
 });
 
 // ---------------------------------------------------------------------------
-// edit_file — surgical replace of a unique substring
+// edit_file — surgical string replace
 // ---------------------------------------------------------------------------
 
 export const editFileTool = llm.defineTool({
@@ -234,21 +337,27 @@ export const editFileTool = llm.defineTool({
   description:
     "Replace an exact string inside an existing file. Use for targeted edits. " +
     "The old_string must match the file's current content EXACTLY and appear " +
-    "exactly once. Read the file first to see its current content.",
+    "exactly once. Read the file first to see its current content. " +
+    "Set replace_all=true to replace every occurrence (use for renames).",
   validator: z.object({
     path: z.string().describe("File path"),
     old_string: z
       .string()
-      .describe("Exact text to find (must be unique in the file)"),
+      .describe("Exact text to find (must be unique unless replace_all=true)"),
     new_string: z.string().describe("Replacement text"),
+    replace_all: z
+      .boolean()
+      .default(false)
+      .describe("If true, replace every occurrence of old_string."),
   }),
-  tool: async ({ path: filePath, old_string, new_string }) => {
+  tool: async ({ path: filePath, old_string, new_string, replace_all }) => {
     try {
       assertInsideProject(filePath);
     } catch (err: unknown) {
       return {
         ok: false,
         path: filePath,
+        occurrences: null,
         bytesWritten: null,
         error: errorMessage(err),
       };
@@ -261,6 +370,7 @@ export const editFileTool = llm.defineTool({
       return {
         ok: false,
         path: filePath,
+        occurrences: null,
         bytesWritten: null,
         error: `Cannot read file: ${errorMessage(err)}. Use write_file if it does not exist yet.`,
       };
@@ -271,29 +381,34 @@ export const editFileTool = llm.defineTool({
       return {
         ok: false,
         path: filePath,
+        occurrences: 0,
         bytesWritten: null,
         error:
           "old_string not found. Read the file first to see its current content.",
       };
     }
-    if (occurrences > 1) {
+    if (occurrences > 1 && !replace_all) {
       return {
         ok: false,
         path: filePath,
+        occurrences,
         bytesWritten: null,
-        error: `old_string appears ${occurrences} times. Add more surrounding context to make it unique.`,
+        error: `old_string appears ${occurrences} times. Set replace_all=true or add surrounding context.`,
       };
     }
 
-    const newContent = content.replace(old_string, new_string);
+    const newContent = replace_all
+      ? content.split(old_string).join(new_string)
+      : content.replace(old_string, new_string);
 
     const approved = await confirm(
-      `\n[edit_file] ${filePath} (${old_string.length} → ${new_string.length} chars). Allow? [y/N] `,
+      `\n[edit_file] ${filePath} (${occurrences} replacement(s), ${old_string.length} → ${new_string.length} chars). Allow? [y/N] `,
     );
     if (!approved) {
       return {
         ok: false,
         path: filePath,
+        occurrences,
         bytesWritten: null,
         error: "User denied edit permission.",
       };
@@ -304,6 +419,7 @@ export const editFileTool = llm.defineTool({
       return {
         ok: true,
         path: filePath,
+        occurrences,
         bytesWritten: newContent.length,
         error: null,
       };
@@ -311,6 +427,253 @@ export const editFileTool = llm.defineTool({
       return {
         ok: false,
         path: filePath,
+        occurrences,
+        bytesWritten: null,
+        error: errorMessage(err),
+      };
+    }
+  },
+});
+
+// ---------------------------------------------------------------------------
+// insert_file — insert content after a specific line number
+// ---------------------------------------------------------------------------
+
+export const insertFileTool = llm.defineTool({
+  name: "insert_file",
+  description:
+    "Insert content after a specific line number in an existing file. " +
+    "Line numbers are 1-indexed and match read_file output. " +
+    "after_line=0 inserts at the very beginning. " +
+    "Use this for adding new code blocks without rewriting the whole file.",
+  validator: z.object({
+    path: z.string().describe("File path"),
+    after_line: z
+      .number()
+      .int()
+      .min(0)
+      .describe(
+        "Insert after this line number (1-indexed). 0 = insert at the top of the file.",
+      ),
+    content: z.string().describe("Text to insert (can be multi-line)"),
+  }),
+  tool: async ({ path: filePath, after_line, content }) => {
+    try {
+      assertInsideProject(filePath);
+    } catch (err: unknown) {
+      return {
+        ok: false,
+        path: filePath,
+        insertedAtLine: null,
+        linesInserted: null,
+        newTotalLines: null,
+        bytesWritten: null,
+        error: errorMessage(err),
+      };
+    }
+
+    let raw: string;
+    try {
+      raw = await readFile(filePath, "utf-8");
+    } catch (err: unknown) {
+      return {
+        ok: false,
+        path: filePath,
+        insertedAtLine: null,
+        linesInserted: null,
+        newTotalLines: null,
+        bytesWritten: null,
+        error: `Cannot read file: ${errorMessage(err)}. Use write_file if it does not exist yet.`,
+      };
+    }
+
+    const lines = raw.split("\n");
+    if (after_line > lines.length) {
+      return {
+        ok: false,
+        path: filePath,
+        insertedAtLine: null,
+        linesInserted: null,
+        newTotalLines: null,
+        bytesWritten: null,
+        error: `after_line=${after_line} is beyond the file's ${lines.length} lines.`,
+      };
+    }
+
+    const newLines = content.split("\n");
+    const updated = [
+      ...lines.slice(0, after_line),
+      ...newLines,
+      ...lines.slice(after_line),
+    ];
+
+    const approved = await confirm(
+      `\n[insert_file] ${filePath}: insert ${newLines.length} line(s) after line ${after_line}. Allow? [y/N] `,
+    );
+    if (!approved) {
+      return {
+        ok: false,
+        path: filePath,
+        insertedAtLine: null,
+        linesInserted: null,
+        newTotalLines: null,
+        bytesWritten: null,
+        error: "User denied insert permission.",
+      };
+    }
+
+    try {
+      const newContent = updated.join("\n");
+      await writeFile(filePath, newContent, "utf-8");
+      markWritten(filePath);
+      return {
+        ok: true,
+        path: filePath,
+        insertedAtLine: after_line,
+        linesInserted: newLines.length,
+        newTotalLines: updated.length,
+        bytesWritten: newContent.length,
+        error: null,
+      };
+    } catch (err: unknown) {
+      return {
+        ok: false,
+        path: filePath,
+        insertedAtLine: null,
+        linesInserted: null,
+        newTotalLines: null,
+        bytesWritten: null,
+        error: errorMessage(err),
+      };
+    }
+  },
+});
+
+// ---------------------------------------------------------------------------
+// replace_lines — replace an inclusive line range
+// ---------------------------------------------------------------------------
+
+export const replaceLinesTool = llm.defineTool({
+  name: "replace_lines",
+  description:
+    "Replace an inclusive range of lines with new content. " +
+    "Line numbers are 1-indexed and match read_file output. " +
+    "Use for surgical edits when you know the exact line range. " +
+    "start_line and end_line are both inclusive.",
+  validator: z.object({
+    path: z.string().describe("File path"),
+    start_line: z
+      .number()
+      .int()
+      .min(1)
+      .describe("First line to replace (1-indexed, inclusive)"),
+    end_line: z
+      .number()
+      .int()
+      .min(1)
+      .describe("Last line to replace (1-indexed, inclusive)"),
+    new_content: z
+      .string()
+      .describe("Replacement text (can be multi-line, or empty to delete)"),
+  }),
+  tool: async ({ path: filePath, start_line, end_line, new_content }) => {
+    try {
+      assertInsideProject(filePath);
+    } catch (err: unknown) {
+      return {
+        ok: false,
+        path: filePath,
+        replacedLines: null,
+        linesReplaced: null,
+        newTotalLines: null,
+        bytesWritten: null,
+        error: errorMessage(err),
+      };
+    }
+
+    if (start_line > end_line) {
+      return {
+        ok: false,
+        path: filePath,
+        replacedLines: null,
+        linesReplaced: null,
+        newTotalLines: null,
+        bytesWritten: null,
+        error: `start_line (${start_line}) must be <= end_line (${end_line}).`,
+      };
+    }
+
+    let raw: string;
+    try {
+      raw = await readFile(filePath, "utf-8");
+    } catch (err: unknown) {
+      return {
+        ok: false,
+        path: filePath,
+        replacedLines: null,
+        linesReplaced: null,
+        newTotalLines: null,
+        bytesWritten: null,
+        error: `Cannot read file: ${errorMessage(err)}.`,
+      };
+    }
+
+    const lines = raw.split("\n");
+    if (end_line > lines.length) {
+      return {
+        ok: false,
+        path: filePath,
+        replacedLines: null,
+        linesReplaced: null,
+        newTotalLines: null,
+        bytesWritten: null,
+        error: `end_line=${end_line} is beyond the file's ${lines.length} lines.`,
+      };
+    }
+
+    const newLines = new_content === "" ? [] : new_content.split("\n");
+    const linesReplaced = end_line - start_line + 1;
+    const updated = [
+      ...lines.slice(0, start_line - 1),
+      ...newLines,
+      ...lines.slice(end_line),
+    ];
+
+    const approved = await confirm(
+      `\n[replace_lines] ${filePath}: replace lines ${start_line}-${end_line} (${linesReplaced} lines) with ${newLines.length} line(s). Allow? [y/N] `,
+    );
+    if (!approved) {
+      return {
+        ok: false,
+        path: filePath,
+        replacedLines: null,
+        linesReplaced: null,
+        newTotalLines: null,
+        bytesWritten: null,
+        error: "User denied replace permission.",
+      };
+    }
+
+    try {
+      const newContent = updated.join("\n");
+      await writeFile(filePath, newContent, "utf-8");
+      markWritten(filePath);
+      return {
+        ok: true,
+        path: filePath,
+        replacedLines: `${start_line}-${end_line}`,
+        linesReplaced,
+        newTotalLines: updated.length,
+        bytesWritten: newContent.length,
+        error: null,
+      };
+    } catch (err: unknown) {
+      return {
+        ok: false,
+        path: filePath,
+        replacedLines: null,
+        linesReplaced: null,
+        newTotalLines: null,
         bytesWritten: null,
         error: errorMessage(err),
       };
@@ -366,6 +729,10 @@ export const deleteFileTool = llm.defineTool({
     }
   },
 });
+
+// ---------------------------------------------------------------------------
+// finish
+// ---------------------------------------------------------------------------
 
 export const finishTool = llm.defineTool({
   name: "finish",
