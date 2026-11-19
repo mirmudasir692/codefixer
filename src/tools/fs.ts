@@ -10,6 +10,7 @@ import {
   errorMessage,
 } from "../utils/index.js";
 import { markRead, markWritten, hasBeenRead } from "../core/session.js";
+import { historyManager } from "../core/history.js";
 
 const DEFAULT_READ_LIMIT = 2000;
 
@@ -186,6 +187,7 @@ export const writeFileTool = llm.defineTool({
     }
 
     try {
+      await historyManager.snapshot(filePath, `write_file: ${filePath}`);
       await writeFile(filePath, content, "utf-8");
       markWritten(filePath);
       return {
@@ -288,6 +290,7 @@ export const editFileTool = llm.defineTool({
     }
 
     try {
+      await historyManager.snapshot(filePath, `edit_file: ${filePath}`);
       await writeFile(filePath, newContent, "utf-8");
       return {
         ok: true,
@@ -391,6 +394,7 @@ export const insertFileTool = llm.defineTool({
     }
 
     try {
+      await historyManager.snapshot(filePath, `insert_file: ${filePath}`);
       const newContent = updated.join("\n");
       await writeFile(filePath, newContent, "utf-8");
       markWritten(filePath);
@@ -510,6 +514,7 @@ export const replaceLinesTool = llm.defineTool({
     }
 
     try {
+      await historyManager.snapshot(filePath, `replace_lines: ${filePath}`);
       const newContent = updated.join("\n");
       await writeFile(filePath, newContent, "utf-8");
       markWritten(filePath);
@@ -566,6 +571,7 @@ export const deleteFileTool = llm.defineTool({
     }
 
     try {
+      await historyManager.snapshot(filePath, `delete_file: ${filePath}`);
       await unlink(filePath);
       return {
         ok: true,

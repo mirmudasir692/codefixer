@@ -11,3 +11,6 @@ dist/
 *.log
 npm-debug.log*
 .DS_Store
+
+# Codefixer local history & checkpoints
+.codefixer/

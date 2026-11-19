@@ -19,6 +19,7 @@
     "build": "./node_modules/.bin/tsc && chmod +x dist/index.js",
     "dev": "tsx src/index.ts",
     "start": "tsx src/index.ts",
+    "test": "tsx --test test/**/*.test.ts",
     "prepare": "npm run build",
     "prepack": "npm run build"
   },
