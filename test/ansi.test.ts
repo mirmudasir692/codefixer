@@ -6,6 +6,7 @@ import {
   clip,
   fit,
   pad,
+  wrapText,
   paint,
   colors,
   BOLD,
@@ -52,5 +53,41 @@ describe("ANSI and Layout Utilities", () => {
     assert.equal(pad(text, 6), "test  ");
     assert.equal(pad(text, 2), "test");
   });
-});
 
+  test("wrapText wraps long lines at word boundaries without clipping", () => {
+    const paragraph =
+      "This information provides a clear overview of the project structure and components.";
+    const wrapped = wrapText(paragraph, 30);
+    assert.ok(wrapped.length >= 3);
+    for (const line of wrapped) {
+      assert.ok(visualWidth(line) <= 30);
+    }
+    assert.equal(wrapped.join(" "), paragraph);
+  });
+
+  test("wrapText preserves bullet indentation on wrapped lines", () => {
+    const bullet = "  • agent.ts: The main TypeScript file for the agent kernel loop.";
+    const wrapped = wrapText(bullet, 35);
+    assert.ok(wrapped.length >= 2);
+    assert.ok(wrapped[1].startsWith("    "));
+  });
+
+  test("wrapText wraps long lines at word boundaries without clipping", () => {
+    const paragraph =
+      "This information provides a clear overview of the project structure and components.";
+    const wrapped = wrapText(paragraph, 30);
+    assert.ok(wrapped.length >= 3);
+    for (const line of wrapped) {
+      assert.ok(visualWidth(line) <= 30);
+    }
+    assert.equal(wrapped.join(" "), paragraph);
+  });
+
+  test("wrapText preserves bullet indentation on wrapped lines", () => {
+    const bullet = "  • agent.ts: The main TypeScript file for the agent kernel loop.";
+    const wrapped = wrapText(bullet, 35);
+    assert.ok(wrapped.length >= 2);
+    // Continuation lines should be indented
+    assert.ok(wrapped[1].startsWith("    "));
+  });
+});

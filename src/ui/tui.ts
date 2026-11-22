@@ -14,6 +14,7 @@ import {
   fit,
   paint,
   visualWidth,
+  wrapText,
 } from "./ansi.js";
 import { welcomeLines } from "./banner.js";
 
@@ -24,6 +25,23 @@ export interface TuiStatus {
   cwd: string;
   branch: string;
 }
+
+export interface SlashCommand {
+  name: string;
+  args?: string;
+  description: string;
+}
+
+export const SLASH_COMMANDS: SlashCommand[] = [
+  { name: "/help", description: "List all available interactive commands" },
+  { name: "/model", args: "[name]", description: "View or switch Ollama model" },
+  { name: "/messages", description: "List conversation messages & change counts" },
+  { name: "/history", description: "Show recent checkpoints & diff timeline" },
+  { name: "/undo", description: "Revert the most recent file change" },
+  { name: "/revert", args: "<n> | <id> | file <p>", description: "Revert files to earlier checkpoint" },
+  { name: "/clear", description: "Clear current conversation screen" },
+  { name: "/exit", description: "Exit Codefixer" },
+];
 
 const MAX_TRANSCRIPT_LINES = 1000;
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -65,6 +83,22 @@ export class Tui {
   private spinnerTimer: ReturnType<typeof setInterval> | null = null;
   private renderScheduled = false;
   private hint = "";
+  private hideSuggestions = false;
+  private selectedSuggestionIndex = 0;
+
+  getMatchingCommands(): SlashCommand[] {
+    if (!this.input.startsWith("/") || this.hideSuggestions) return [];
+    const spaceIndex = this.input.indexOf(" ");
+    if (spaceIndex !== -1 && this.cursor > spaceIndex) return [];
+    const query = this.input
+      .slice(0, spaceIndex === -1 ? this.input.length : spaceIndex)
+      .toLowerCase();
+    return SLASH_COMMANDS.filter(
+      (cmd) =>
+        cmd.name.toLowerCase().startsWith(query) ||
+        (query.length > 1 && cmd.name.toLowerCase().includes(query)),
+    );
+  }
 
   /** Called when the user presses Ctrl+C / Ctrl+D on empty input. */
   onExit: (() => void) | null = null;
@@ -109,8 +143,17 @@ export class Tui {
 
   print(text: string): void {
     if (!this.active) return;
+    const cols = Math.max(48, process.stdout.columns || 100);
+    const sidebarW = cols >= 96 ? 26 : 0;
+    const mainW = cols - sidebarW;
+    const maxWrapW = Math.max(30, mainW - 6);
+
     for (const rawLine of text.replace(/\r\n/g, "\n").split("\n")) {
-      this.transcript.push(this.formatLine(rawLine));
+      const formatted = this.formatLine(rawLine);
+      const wrapped = wrapText(formatted, maxWrapW);
+      for (const wLine of wrapped) {
+        this.transcript.push(wLine);
+      }
     }
     if (this.transcript.length > MAX_TRANSCRIPT_LINES) {
       this.transcript = this.transcript.slice(-MAX_TRANSCRIPT_LINES);
@@ -174,6 +217,8 @@ export class Tui {
     this.input = "";
     this.cursor = 0;
     this.hint = "";
+    this.hideSuggestions = false;
+    this.selectedSuggestionIndex = 0;
     this.awaitingInput = true;
     this.historyIndex = this.commandHistory.length;
     return new Promise((resolve) => {
@@ -221,15 +266,26 @@ export class Tui {
   }
 
   private handleEscape(seq: string): void {
+    const matches = this.getMatchingCommands();
     switch (seq) {
-      case "\x1b[A": // Up arrow — previous command in history
+      case "\x1b[A": // Up arrow
+        if (matches.length > 0) {
+          this.selectedSuggestionIndex =
+            (this.selectedSuggestionIndex - 1 + matches.length) % matches.length;
+          break;
+        }
         if (this.commandHistory.length) {
           this.historyIndex = Math.max(0, this.historyIndex - 1);
           this.input = this.commandHistory[this.historyIndex] ?? "";
           this.cursor = this.input.length;
         }
         break;
-      case "\x1b[B": // Down arrow — newer command
+      case "\x1b[B": // Down arrow
+        if (matches.length > 0) {
+          this.selectedSuggestionIndex =
+            (this.selectedSuggestionIndex + 1) % matches.length;
+          break;
+        }
         this.historyIndex = Math.min(
           this.commandHistory.length,
           this.historyIndex + 1,
@@ -280,16 +336,58 @@ export class Tui {
           i += match[0].length;
           continue;
         }
+        // Bare Escape: close suggestions if open
+        if (this.getMatchingCommands().length > 0) {
+          this.hideSuggestions = true;
+          this.scheduleRender();
+          i++;
+          continue;
+        }
+        i++;
+        continue;
+      }
+
+      if (ch === "\t") {
+        const matches = this.getMatchingCommands();
+        if (matches.length > 0) {
+          const chosen = matches[this.selectedSuggestionIndex % matches.length];
+          if (chosen) {
+            this.input = chosen.name + (chosen.args ? " " : "");
+            this.cursor = this.input.length;
+            this.hideSuggestions = false;
+            this.scheduleRender();
+          }
+        }
         i++;
         continue;
       }
 
       if (ch === "\r" || ch === "\n") {
+        const matches = this.getMatchingCommands();
+        if (matches.length > 0 && this.input.startsWith("/")) {
+          const chosen = matches[this.selectedSuggestionIndex % matches.length];
+          if (chosen && this.input.trim() !== chosen.name) {
+            if (!chosen.args) {
+              this.input = chosen.name;
+              this.cursor = this.input.length;
+              this.submitInput();
+              i++;
+              continue;
+            } else if (!this.input.includes(" ")) {
+              this.input = chosen.name + " ";
+              this.cursor = this.input.length;
+              this.scheduleRender();
+              i++;
+              continue;
+            }
+          }
+        }
         this.submitInput();
       } else if (ch === "\x03" || ch === "\x04") {
         if (this.input.length > 0) {
           this.input = "";
           this.cursor = 0;
+          this.hideSuggestions = false;
         } else {
           this.onExit?.();
         }
@@ -298,11 +396,14 @@ export class Tui {
           this.input =
             this.input.slice(0, this.cursor - 1) + this.input.slice(this.cursor);
           this.cursor--;
+          this.hideSuggestions = false;
+          this.selectedSuggestionIndex = 0;
         }
       } else if (ch === "\x15") {
         // Ctrl+U: clear input
         this.input = "";
         this.cursor = 0;
+        this.hideSuggestions = false;
       } else if (ch === "\x0b") {
         // Ctrl+K: clear to end of line
         this.input = this.input.slice(0, this.cursor);
@@ -320,6 +421,8 @@ export class Tui {
           this.input.slice(0, this.cursor) + ch + this.input.slice(this.cursor);
         this.cursor++;
         this.hint = "";
+        this.hideSuggestions = false;
+        this.selectedSuggestionIndex = 0;
       }
       i++;
     }
@@ -422,7 +525,19 @@ export class Tui {
     // Row rows - 1: Status bar
     // Row rows: Empty / border buffer
     const inputTop = Math.max(4, rows - 4);
-    const visibleLines = Math.max(1, inputTop - 2);
+    const matches = this.getMatchingCommands();
+    const hasSuggestions = matches.length > 0;
+    const maxSuggestions = Math.min(5, Math.max(1, inputTop - 5));
+    const visibleSuggestions = hasSuggestions
+      ? matches.slice(0, maxSuggestions)
+      : [];
+    const suggestionHeight =
+      visibleSuggestions.length > 0 ? visibleSuggestions.length + 2 : 0;
+    const suggestionTop = inputTop - suggestionHeight;
+    const convVisibleLines = Math.max(
+      1,
+      (suggestionHeight > 0 && suggestionTop > 2 ? suggestionTop : inputTop) - 2,
+    );
 
     // Sidebar line buffer (if visible)
     const sidebarLines: string[] = [];
@@ -439,9 +554,11 @@ export class Tui {
       sidebarLines.push(paint("─".repeat(sidebarW - 3), colors.dim));
       sidebarLines.push(paint(" Shortcuts", colors.white, BOLD));
       sidebarLines.push(paint("/help     ", colors.accent) + paint("commands", colors.dim));
+      sidebarLines.push(paint("/model    ", colors.accent) + paint("switch model", colors.dim));
       sidebarLines.push(paint("/history  ", colors.accent) + paint("checkpoints", colors.dim));
       sidebarLines.push(paint("/undo     ", colors.accent) + paint("revert last", colors.dim));
       sidebarLines.push(paint("/messages ", colors.accent) + paint("turns", colors.dim));
+      sidebarLines.push(paint("/clear    ", colors.accent) + paint("clean screen", colors.dim));
       sidebarLines.push(paint("─".repeat(sidebarW - 3), colors.dim));
       sidebarLines.push(paint(" Status", colors.white, BOLD));
       sidebarLines.push(
@@ -477,7 +594,58 @@ export class Tui {
         const right = paint("Ctrl+C exit  ·  /help", colors.dim) + " ";
         const space = Math.max(1, mainW - 1 - visualWidth(left) - visualWidth(right));
         mainText = left + " ".repeat(space) + right;
-      } else if (y >= 2 && y < inputTop) {
+      } else if (suggestionHeight > 0 && y >= suggestionTop && y < inputTop) {
+        // --- Floating Command Suggestions Box ---
+        const boxW = Math.max(20, mainW - 4);
+        if (y === suggestionTop) {
+          const title = " Commands ";
+          const dashes = Math.max(0, boxW - 2 - visualWidth(title) - 2);
+          mainText =
+            "  " +
+            paint("╭──" + title, colors.accent, BOLD) +
+            paint("─".repeat(dashes) + "╮", colors.accent);
+        } else if (y === inputTop - 1) {
+          const hint = " [Tab / Enter to select · Esc to close] ";
+          const dashes = Math.max(0, boxW - 2 - visualWidth(hint));
+          mainText =
+            "  " +
+            paint("╰" + "─".repeat(dashes), colors.accent) +
+            paint(hint, colors.dim) +
+            paint("─╯", colors.accent);
+        } else {
+          const innerW = boxW - 4;
+          const itemIdx = y - suggestionTop - 1;
+          const cmd = visibleSuggestions[itemIdx];
+          const isSelected =
+            itemIdx ===
+            (this.selectedSuggestionIndex % visibleSuggestions.length);
+
+          const prefix = isSelected ? paint(" ▸ ", colors.accent, BOLD) : "   ";
+          const name = isSelected
+            ? paint(cmd.name, colors.white, BOLD)
+            : paint(cmd.name, colors.accent);
+          const args = cmd.args
+            ? " " + paint(cmd.args, isSelected ? colors.cyan : colors.dim)
+            : "";
+          const nameLen = visualWidth(
+            cmd.name + (cmd.args ? " " + cmd.args : ""),
+          );
+          const padLen = Math.max(1, 22 - nameLen);
+          const desc = paint(
+            cmd.description,
+            isSelected ? colors.text : colors.dim,
+          );
+          const itemContent = prefix + name + args + " ".repeat(padLen) + desc;
+
+          mainText =
+            "  " +
+            paint("│", colors.accent) +
+            " " +
+            fit(itemContent, innerW) +
+            " " +
+            paint("│", colors.accent);
+        }
+      } else if (y >= 2 && y < (suggestionHeight > 0 ? suggestionTop : inputTop)) {
         // --- Main Conversation or Welcome Banner ---
         const convIndex = y - 2;
         const isWelcome = this.transcript.length === 0;
@@ -493,9 +661,9 @@ export class Tui {
           }
         } else {
           // If at the bottom of the conversation area and there is a hint or scroll offset:
-          if (convIndex === visibleLines - 1 && this.hint) {
+          if (convIndex === convVisibleLines - 1 && this.hint) {
             mainText = "  " + paint(this.hint, colors.orange);
-          } else if (convIndex === visibleLines - 1 && this.scrollOffset > 0) {
+          } else if (convIndex === convVisibleLines - 1 && this.scrollOffset > 0) {
             mainText =
               "  " +
               paint(
@@ -504,7 +672,7 @@ export class Tui {
               );
           } else {
             const total = this.transcript.length;
-            const start = Math.max(0, total - visibleLines - this.scrollOffset);
+            const start = Math.max(0, total - convVisibleLines - this.scrollOffset);
             const lineIdx = start + convIndex;
             if (lineIdx >= 0 && lineIdx < total) {
               mainText = "  " + this.transcript[lineIdx];

@@ -1,3 +1,4 @@
+// Minimal ANSI escape helpers used by the terminal UI. No external deps.
 
 export const ESC = "\x1b[";
 
@@ -23,6 +24,7 @@ export function bg(r: number, g: number, b: number): string {
   return `${ESC}48;2;${r};${g};${b}m`;
 }
 
+// Palette approximating the dark, blue-accented look of modern agent TUIs.
 export const colors = {
   bg: bg(13, 13, 15),
   panel: bg(28, 28, 33),
@@ -43,6 +45,7 @@ export function paint(text: string, ...styles: string[]): string {
   return `${styles.join("")}${text}${RESET}`;
 }
 
+// Strip SGR / CSI sequences so we can measure and clip visible text.
 export function stripAnsi(text: string): string {
   return text.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "");
 }
@@ -51,6 +54,7 @@ export function visualWidth(text: string): number {
   return stripAnsi(text.replace(/\t/g, "  ")).length;
 }
 
+// Clip to a visible width while preserving any ANSI styles in the text.
 export function clip(text: string, width: number): string {
   if (width <= 0) return "";
   text = text.replace(/\t/g, "  ");
@@ -77,14 +81,62 @@ export function clip(text: string, width: number): string {
   return out + paint("…", colors.dim);
 }
 
+// Pad an ANSI string to an exact visual width with trailing spaces.
 export function pad(text: string, width: number): string {
   const diff = width - visualWidth(text);
   return diff > 0 ? text + " ".repeat(diff) : text;
 }
 
+// Clip or pad an ANSI string so it occupies exactly `width` terminal cells.
 export function fit(text: string, width: number): string {
   if (width <= 0) return "";
   const clipped = clip(text, width);
   const diff = width - visualWidth(clipped);
   return diff > 0 ? clipped + " ".repeat(diff) : clipped;
+}
+
+// Word-wrap text to a given column width, preserving indents and bullet alignment.
+export function wrapText(text: string, width: number): string[] {
+  if (width <= 15) return [text];
+  text = text.replace(/\t/g, "  ");
+  if (visualWidth(text) <= width) return [text];
+
+  const lines: string[] = [];
+  const rawLines = text.split("\n");
+
+  for (const rawLine of rawLines) {
+    if (visualWidth(rawLine) <= width) {
+      lines.push(rawLine);
+      continue;
+    }
+
+    const plain = stripAnsi(rawLine);
+    const indentMatch = /^(?:\s*[-*•]\s+|\s+)/.exec(plain);
+    const prefix = indentMatch ? indentMatch[0] : "";
+    const indent = indentMatch ? " ".repeat(indentMatch[0].length) : "";
+
+    const body = indentMatch ? rawLine.slice(prefix.length) : rawLine;
+    const words = body.split(/\s+/).filter(Boolean);
+    let currentLine = prefix;
+
+    for (const word of words) {
+      const candidate = currentLine === prefix ? `${prefix}${word}` : `${currentLine} ${word}`;
+      if (visualWidth(candidate) <= width) {
+        currentLine = candidate;
+      } else {
+        if (currentLine && currentLine !== prefix) {
+          lines.push(currentLine);
+          currentLine = indent ? `${indent}${word}` : word;
+        } else {
+          lines.push(clip(candidate, width));
+          currentLine = "";
+        }
+      }
+    }
+    if (currentLine && currentLine !== prefix) {
+      lines.push(currentLine);
+    }
+  }
+
+  return lines;
 }

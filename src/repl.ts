@@ -2,12 +2,12 @@ import * as readline from "node:readline/promises";
 import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { MODEL_ID } from "./agent.js";
+import { MODEL_ID, setModel } from "./agent.js";
 import { runTurn } from "./loop.js";
 import { resetSession } from "./session.js";
 import { historyManager } from "./core/history.js";
 import { logger, usePromptInterface } from "./utils/index.js";
-import { Tui, setActiveTui, type TuiStatus } from "./ui/tui.js";
+import { Tui, setActiveTui, getActiveTui, type TuiStatus } from "./ui/tui.js";
 
 const MAX_HISTORY_CHARS = 8000;
 
@@ -27,14 +27,30 @@ async function handleInput(
   state: State,
   onBusy?: (busy: boolean) => void,
 ): Promise<boolean> {
-  if (trimmed.toLowerCase() === "exit" || trimmed.toLowerCase() === "quit") {
+  if (
+    trimmed === "/exit" ||
+    trimmed === "/quit" ||
+    trimmed.toLowerCase() === "exit" ||
+    trimmed.toLowerCase() === "quit"
+  ) {
     return true;
   }
   if (!trimmed) return false;
 
+  if (trimmed === "/clear") {
+    const tui = getActiveTui();
+    if (tui?.isActive) {
+      tui.clear();
+    } else {
+      console.clear();
+    }
+    return false;
+  }
+
   // Built-in History Management Commands
   if (trimmed === "/help") {
     logger.info("\nAvailable Commands:");
+    logger.info("  /model [name]        View current model or switch (e.g. /model qwen2.5:7b)");
     logger.info("  /messages            List your messages with their change counts");
     logger.info("  /history             Show recent checkpoints");
     logger.info("  /undo                Revert the most recent change");
@@ -42,6 +58,22 @@ async function handleInput(
     logger.info("  /revert <id>         Revert to a specific checkpoint ID");
     logger.info("  /revert file <path>  Revert a specific file to its previous state");
     logger.info("  exit / quit          Exit the REPL\n");
+    return false;
+  }
+
+  if (trimmed === "/model" || trimmed.startsWith("/model ")) {
+    const target = trimmed.slice(6).trim();
+    if (!target) {
+      logger.info(`\nActive Model: ${MODEL_ID}`);
+      logger.info("To switch, run: /model <name> (e.g. /model qwen2.5-agent-7b:latest or /model qwen2.5:7b)\n");
+    } else {
+      const updated = setModel(target);
+      const tui = getActiveTui();
+      if (tui?.isActive) {
+        tui.setStatus(getStatus());
+      }
+      logger.info(`\n✓ Switched model to ${updated}\n`);
+    }
     return false;
   }
 
