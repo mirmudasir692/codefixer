@@ -1,22 +1,16 @@
-// Parses JSON strings safely without throwing, repairing common LLM mistakes
-export function safeParse(args: unknown): any {
-  if (typeof args !== "string") return args;
+export function safeParse<T = Record<string, unknown>>(args: unknown): T | null {
+  if (typeof args !== "string") return args as T;
   try {
-    return JSON.parse(args);
+    return JSON.parse(args) as T;
   } catch {
-    // Models often emit JSON-ish arguments with Python-style triple-quoted
-    // values or raw newlines inside strings. Try to repair before giving up.
     try {
-      return JSON.parse(repairLooseJson(args));
+      return JSON.parse(repairLooseJson(args)) as T;
     } catch {
       return null;
     }
   }
 }
 
-// Repairs JSON-ish tool arguments emitted by models: converts Python-style
-// triple-quoted values to JSON strings and escapes raw control characters
-// that appear inside string literals.
 function repairLooseJson(raw: string): string {
   const withQuotedValues = raw.replace(
     /:\s*("""|''')([\s\S]*?)\1/g,
@@ -25,7 +19,6 @@ function repairLooseJson(raw: string): string {
   return escapeControlCharsInsideStrings(withQuotedValues);
 }
 
-// Escapes raw newlines/tabs/carriage returns that appear inside JSON strings
 function escapeControlCharsInsideStrings(text: string): string {
   let out = "";
   let inString = false;
@@ -69,7 +62,6 @@ function escapeControlCharsInsideStrings(text: string): string {
   return out;
 }
 
-// Extracts {"name":"...","arguments":{...}} from text with nested braces support
 export function extractTextToolCalls(text: string): { name: string; args: string }[] {
   const calls: { name: string; args: string }[] = [];
   const re = /\{\s*"name"\s*:\s*"([^"]+)"\s*,\s*"arguments"\s*:\s*/g;

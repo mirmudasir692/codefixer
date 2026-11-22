@@ -6,7 +6,6 @@ import { assertInsideProject, truncate, confirm, errorMessage } from "../utils/i
 
 const execAsync = promisify(exec);
 
-// Run a shell command safely inside the project root
 export const runShellTool = llm.defineTool({
   name: "run_shell",
   description: "Run a shell command. Use to run tests, builds, or check output.",
@@ -54,16 +53,16 @@ export const runShellTool = llm.defineTool({
         exitCode: 0,
         error: null,
       };
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const execErr = err as { stdout?: string; stderr?: string; code?: number } | null;
       return {
         ok: false,
         command,
-        stdout: truncate(err.stdout ?? ""),
-        stderr: truncate(err.stderr ?? errorMessage(err)),
-        exitCode: typeof err.code === "number" ? err.code : 1,
+        stdout: truncate(execErr?.stdout ?? ""),
+        stderr: truncate(execErr?.stderr ?? errorMessage(err)),
+        exitCode: typeof execErr?.code === "number" ? execErr.code : 1,
         error: errorMessage(err),
       };
     }
   },
 });
-

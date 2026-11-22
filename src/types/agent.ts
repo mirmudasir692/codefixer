@@ -1,4 +1,3 @@
-// Core agent execution types
 export type TurnResult = {
   text: string;
   transcriptLine: string;
@@ -7,9 +6,32 @@ export type TurnResult = {
   finishSummary?: string;
 };
 
-// Tool execution call shape
+export type StopReason = "mutation-limit" | "round-limit" | "stalled" | null;
+
 export type ParsedToolCall = {
   name: string;
-  args: any;
+  args: string;
 };
 
+export type MessageEntry = {
+  index: number;
+  text: string;
+};
+
+export type ReplState = {
+  history: string;
+  messageIndex: number;
+  messages: MessageEntry[];
+};
+
+export interface AgentToolCall {
+  name: string;
+  args: unknown;
+}
+
+export interface AgentCallResponse {
+  toolCalls?: AgentToolCall[];
+  executeTools: () => Promise<unknown>;
+  resume: (content: unknown) => Promise<AgentCallResponse>;
+  text: () => string | undefined;
+}

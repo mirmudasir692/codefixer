@@ -1,5 +1,3 @@
-// Session state tracking read and written files to prevent accidental overwrites
-
 const readFiles = new Set<string>();
 
 export function markRead(filePath: string): void {
@@ -17,4 +15,3 @@ export function hasBeenRead(filePath: string): boolean {
 export function resetSession(): void {
   readFiles.clear();
 }
-

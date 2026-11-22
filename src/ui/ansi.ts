@@ -1,5 +1,3 @@
-// Minimal ANSI escape helpers used by the terminal UI. No external deps.
-
 export const ESC = "\x1b[";
 
 export const RESET = `${ESC}0m`;
@@ -24,7 +22,6 @@ export function bg(r: number, g: number, b: number): string {
   return `${ESC}48;2;${r};${g};${b}m`;
 }
 
-// Palette approximating the dark, blue-accented look of modern agent TUIs.
 export const colors = {
   bg: bg(13, 13, 15),
   panel: bg(28, 28, 33),
@@ -45,7 +42,6 @@ export function paint(text: string, ...styles: string[]): string {
   return `${styles.join("")}${text}${RESET}`;
 }
 
-// Strip SGR / CSI sequences so we can measure and clip visible text.
 export function stripAnsi(text: string): string {
   return text.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "");
 }
@@ -54,7 +50,6 @@ export function visualWidth(text: string): number {
   return stripAnsi(text.replace(/\t/g, "  ")).length;
 }
 
-// Clip to a visible width while preserving any ANSI styles in the text.
 export function clip(text: string, width: number): string {
   if (width <= 0) return "";
   text = text.replace(/\t/g, "  ");
@@ -81,13 +76,11 @@ export function clip(text: string, width: number): string {
   return out + paint("…", colors.dim);
 }
 
-// Pad an ANSI string to an exact visual width with trailing spaces.
 export function pad(text: string, width: number): string {
   const diff = width - visualWidth(text);
   return diff > 0 ? text + " ".repeat(diff) : text;
 }
 
-// Clip or pad an ANSI string so it occupies exactly `width` terminal cells.
 export function fit(text: string, width: number): string {
   if (width <= 0) return "";
   const clipped = clip(text, width);
@@ -95,7 +88,6 @@ export function fit(text: string, width: number): string {
   return diff > 0 ? clipped + " ".repeat(diff) : clipped;
 }
 
-// Word-wrap text to a given column width, preserving indents and bullet alignment.
 export function wrapText(text: string, width: number): string[] {
   if (width <= 15) return [text];
   text = text.replace(/\t/g, "  ");

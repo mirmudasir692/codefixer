@@ -1,30 +1,23 @@
 import * as readline from "node:readline/promises";
 import { execSync } from "node:child_process";
-import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { MODEL_ID, setModel } from "./agent.js";
 import { runTurn } from "./loop.js";
 import { resetSession } from "./session.js";
 import { historyManager } from "./core/history.js";
-import { logger, usePromptInterface } from "./utils/index.js";
-import { Tui, setActiveTui, getActiveTui, type TuiStatus } from "./ui/tui.js";
+import { logger, usePromptInterface, getVersion } from "./utils/index.js";
+import { Tui, setActiveTui, getActiveTui } from "./ui/tui.js";
+import type { ReplState, TuiStatus } from "./types/index.js";
 
 const MAX_HISTORY_CHARS = 8000;
 
-interface State {
-  history: string;
-  messageIndex: number;
-  messages: { index: number; text: string }[];
-}
-
-function newState(): State {
+function newState(): ReplState {
   return { history: "", messageIndex: 0, messages: [] };
 }
 
-// Shared command / agent dispatch used by both the TUI and plain readline REPL.
 async function handleInput(
   trimmed: string,
-  state: State,
+  state: ReplState,
   onBusy?: (busy: boolean) => void,
 ): Promise<boolean> {
   if (
@@ -47,7 +40,6 @@ async function handleInput(
     return false;
   }
 
-  // Built-in History Management Commands
   if (trimmed === "/help") {
     logger.info("\nAvailable Commands:");
     logger.info("  /model [name]        View current model or switch (e.g. /model qwen2.5:7b)");
@@ -196,7 +188,6 @@ async function handleInput(
     return false;
   }
 
-  // Delegate all general requests to the agent kernel
   state.messageIndex++;
   state.messages.push({ index: state.messageIndex, text: trimmed });
   historyManager.beginMessage(state.messageIndex, trimmed);
@@ -215,15 +206,14 @@ async function handleInput(
     state.history = (state.history + "\n" + transcriptLine).slice(
       -MAX_HISTORY_CHARS,
     );
-  } catch (err: any) {
-    logger.error(err.message);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error(msg);
   } finally {
     onBusy?.(false);
   }
   return false;
 }
-
-// --- Status line data -----------------------------------------------------
 
 function getStatus(): TuiStatus {
   let model = MODEL_ID;
@@ -246,9 +236,7 @@ function getStatus(): TuiStatus {
     })
       .toString()
       .trim();
-  } catch {
-    // Not a git repository — leave the branch blank.
-  }
+  } catch {}
 
   const home = homedir();
   const cwd = process.cwd();
@@ -256,17 +244,6 @@ function getStatus(): TuiStatus {
 
   return { mode: "Build", model, provider, cwd: shortCwd, branch };
 }
-
-function getVersion(): string {
-  try {
-    const url = new URL("../package.json", import.meta.url);
-    return JSON.parse(readFileSync(url, "utf8")).version ?? "";
-  } catch {
-    return "";
-  }
-}
-
-// --- REPL implementations -------------------------------------------------
 
 async function startTuiRepl(): Promise<void> {
   const tui = new Tui();
@@ -324,10 +301,13 @@ async function startPlainRepl(): Promise<void> {
       let input: string | null;
       try {
         input = await Promise.race([rl.question("> "), closed]);
-      } catch (err: any) {
-        if (err?.code === "ABORT_ERR" || err?.name === "AbortError") {
-          logger.info("\nExiting.");
-          break;
+      } catch (err: unknown) {
+        if (err && typeof err === "object" && ("code" in err || "name" in err)) {
+          const e = err as { code?: string; name?: string };
+          if (e.code === "ABORT_ERR" || e.name === "AbortError") {
+            logger.info("\nExiting.");
+            break;
+          }
         }
         throw err;
       }
@@ -346,8 +326,6 @@ async function startPlainRepl(): Promise<void> {
   }
 }
 
-// Interactive terminal REPL — full TUI when attached to a terminal, plain
-// readline otherwise (e.g. piped input, CI, or test runners).
 export async function startRepl(): Promise<void> {
   resetSession();
   if (process.stdin.isTTY && process.stdout.isTTY) {

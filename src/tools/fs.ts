@@ -9,31 +9,13 @@ import {
   confirmDestructive,
   errorMessage,
   logger,
+  rejectNumberedContent,
 } from "../utils/index.js";
 import { markRead, markWritten, hasBeenRead } from "../core/session.js";
 import { historyManager } from "../core/history.js";
 
 const DEFAULT_READ_LIMIT = 2000;
 
-// Models sometimes copy read_file's "1\t..." display prefixes straight back
-// into a write. Detect that shape so numbered lines never land in a file.
-function looksNumbered(text: string): boolean {
-  const lines = text.split("\n").filter((line) => line.trim() !== "");
-  if (lines.length < 3) return false;
-  const numbered = lines.filter((line) => /^\d+\t/.test(line)).length;
-  return numbered / lines.length > 0.5;
-}
-
-function rejectNumberedContent(tool: string, text: string): string | null {
-  if (!looksNumbered(text)) return null;
-  return (
-    `Rejected ${tool}: the content still has line-number prefixes copied from ` +
-    `read_file (lines like "1\\t..."). Those numbers are display-only. ` +
-    `Re-send the real file content with the numbers removed.`
-  );
-}
-
-// List files and directories
 export const listDirectoryTool = llm.defineTool({
   name: "list_directory",
   description: "List files and folders in a directory.",
@@ -66,7 +48,6 @@ export const listDirectoryTool = llm.defineTool({
   },
 });
 
-// Read file with line numbering and range support
 export const readFileTool = llm.defineTool({
   name: "read_file",
   description:
@@ -124,7 +105,6 @@ export const readFileTool = llm.defineTool({
   },
 });
 
-// Write full file content with overwrite guards
 export const writeFileTool = llm.defineTool({
   name: "write_file",
   description:
@@ -155,9 +135,7 @@ export const writeFileTool = llm.defineTool({
       existingContent = await readFile(filePath, "utf-8");
       exists = true;
       existingSize = existingContent.length;
-    } catch {
-      // New file
-    }
+    } catch {}
 
     const numberedError = rejectNumberedContent("write_file", content);
     if (numberedError) {
@@ -169,7 +147,6 @@ export const writeFileTool = llm.defineTool({
       };
     }
 
-    // Refuse overwriting an unread existing file
     if (exists && !hasBeenRead(filePath)) {
       return {
         ok: false,
@@ -183,7 +160,6 @@ export const writeFileTool = llm.defineTool({
       };
     }
 
-    // No-op write: avoid pointless confirmation prompts and false "changed" reports
     if (exists && existingContent === content) {
       return {
         ok: false,
@@ -196,7 +172,6 @@ export const writeFileTool = llm.defineTool({
       };
     }
 
-    // Guard against accidental destructive truncation
     if (exists && existingSize > 200 && content.length < existingSize / 2) {
       const dropPct = Math.round((1 - content.length / existingSize) * 100);
       logger.info(
@@ -250,7 +225,6 @@ export const writeFileTool = llm.defineTool({
   },
 });
 
-// Surgical string replacement
 export const editFileTool = llm.defineTool({
   name: "edit_file",
   description:
@@ -377,7 +351,6 @@ export const editFileTool = llm.defineTool({
   },
 });
 
-// Insert content after specific line number
 export const insertFileTool = llm.defineTool({
   name: "insert_file",
   description:
@@ -500,7 +473,6 @@ export const insertFileTool = llm.defineTool({
   },
 });
 
-// Replace inclusive line range
 export const replaceLinesTool = llm.defineTool({
   name: "replace_lines",
   description:
@@ -633,7 +605,6 @@ export const replaceLinesTool = llm.defineTool({
   },
 });
 
-// Delete a file
 export const deleteFileTool = llm.defineTool({
   name: "delete_file",
   description: "Delete a file. Use sparingly; this cannot be undone.",
@@ -679,4 +650,3 @@ export const deleteFileTool = llm.defineTool({
     }
   },
 });
-

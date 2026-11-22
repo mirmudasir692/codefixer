@@ -1,4 +1,5 @@
 import { registry } from "../core/registry.js";
+import type { CallTools } from "../types/index.js";
 import {
   listDirectoryTool,
   readFileTool,
@@ -11,7 +12,6 @@ import {
 import { runShellTool } from "./shell.js";
 import { finishTool } from "./finish.js";
 
-// Register all core tool plugins in the microkernel registry
 registry.register("list_directory", listDirectoryTool);
 registry.register("read_file", readFileTool);
 registry.register("run_shell", runShellTool);
@@ -23,7 +23,7 @@ registry.register("delete_file", deleteFileTool);
 registry.register("finish", finishTool);
 
 export const toolsByName = registry.getMap();
-export const allTools = registry.getAll();
+export const allTools: CallTools = registry.getAll();
 
 export {
   listDirectoryTool,
@@ -36,4 +36,3 @@ export {
   runShellTool,
   finishTool,
 };
-

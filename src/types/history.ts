@@ -1,5 +1,3 @@
-// Persistent history & checkpoint management types
-
 export type FileState = "modified" | "created" | "deleted";
 
 export type FileSnapshot = {
@@ -25,4 +23,3 @@ export type RevertResult = {
   filesReverted: string[];
   error?: string;
 };
-

@@ -8,7 +8,6 @@ import { assertInsideProject } from "../utils/index.js";
 
 const execAsync = promisify(exec);
 
-// Persistent History and Checkpoint Manager
 export class HistoryManager {
   private rootDir: string;
   private baseDir: string;
@@ -25,7 +24,6 @@ export class HistoryManager {
     this.manifestPath = path.join(this.baseDir, "checkpoints.json");
   }
 
-  // Ensures history directories and manifest file exist
   async init(): Promise<void> {
     if (this.initialized) return;
     await mkdir(this.blobsDir, { recursive: true });
@@ -37,7 +35,6 @@ export class HistoryManager {
     this.initialized = true;
   }
 
-  // Load all recorded checkpoints
   async getCheckpoints(): Promise<Checkpoint[]> {
     await this.init();
     try {
@@ -48,19 +45,16 @@ export class HistoryManager {
     }
   }
 
-  // Save checkpoints to disk
   private async saveCheckpoints(checkpoints: Checkpoint[]): Promise<void> {
     await this.init();
     await writeFile(this.manifestPath, JSON.stringify(checkpoints, null, 2), "utf-8");
   }
 
-  // Tags subsequently recorded checkpoints with a conversation message number
   beginMessage(messageId: number, messageText?: string): void {
     this.currentMessageId = messageId;
     this.currentMessageText = messageText?.trim() || null;
   }
 
-  // Snapshot a file before it gets modified or deleted
   async snapshot(filePath: string, description: string): Promise<string> {
     await this.init();
     const resolved = assertInsideProject(filePath, this.rootDir);
@@ -71,9 +65,7 @@ export class HistoryManager {
     try {
       content = await readFile(resolved, "utf-8");
       exists = true;
-    } catch {
-      // File does not exist yet (create operation)
-    }
+    } catch {}
 
     let blobName: string | null = null;
     if (exists) {
@@ -110,7 +102,6 @@ export class HistoryManager {
     return checkpointId;
   }
 
-  // Revert the most recent change
   async revertLast(): Promise<RevertResult> {
     const checkpoints = await this.getCheckpoints();
     if (checkpoints.length === 0) {
@@ -129,7 +120,6 @@ export class HistoryManager {
     return { ok: true, checkpointId: last.id, filesReverted };
   }
 
-  // Revert all changes back to a specific checkpoint ID
   async revertToCheckpoint(checkpointId: string): Promise<RevertResult> {
     const checkpoints = await this.getCheckpoints();
     const targetIdx = checkpoints.findIndex((c) => c.id === checkpointId || c.id.startsWith(checkpointId));
@@ -153,7 +143,6 @@ export class HistoryManager {
     return { ok: true, checkpointId, filesReverted: Array.from(filesRevertedSet) };
   }
 
-  // Revert all file changes recorded from a specific message onward
   async revertToMessage(messageId: number): Promise<RevertResult> {
     const checkpoints = await this.getCheckpoints();
     const targetIdx = checkpoints.findIndex(
@@ -188,7 +177,6 @@ export class HistoryManager {
     };
   }
 
-  // Revert a single file to its previous state
   async revertFile(filePath: string): Promise<RevertResult> {
     const resolved = assertInsideProject(filePath, this.rootDir);
     const relPath = path.relative(this.rootDir, resolved);
@@ -205,17 +193,14 @@ export class HistoryManager {
     return { ok: false, filesReverted: [], error: `No previous version recorded for ${relPath}.` };
   }
 
-  // Restores a single file snapshot
   private async restoreSnapshot(snap: FileSnapshot): Promise<void> {
     const resolved = path.resolve(this.rootDir, snap.path);
 
     if (snap.state === "created") {
-      // File was created by the change — remove it on revert
       try {
         await unlink(resolved);
       } catch {}
     } else if (snap.backupBlobPath) {
-      // File was modified or deleted — restore backup blob content
       const blobPath = path.join(this.blobsDir, snap.backupBlobPath);
       const original = await readFile(blobPath, "utf-8");
       await mkdir(path.dirname(resolved), { recursive: true });
@@ -223,13 +208,11 @@ export class HistoryManager {
     }
   }
 
-  // List recent checkpoints
   async listCheckpoints(limit = 10): Promise<Checkpoint[]> {
     const checkpoints = await this.getCheckpoints();
     return checkpoints.slice(-limit).reverse();
   }
 
-  // Git integration: check if current project is inside a git repo
   async isGitRepo(): Promise<boolean> {
     try {
       const { stdout } = await execAsync("git rev-parse --is-inside-work-tree", { cwd: this.rootDir });
@@ -239,7 +222,6 @@ export class HistoryManager {
     }
   }
 
-  // Git integration: create a git checkpoint commit if desired
   async gitCommitCheckpoint(message: string): Promise<string | null> {
     if (!(await this.isGitRepo())) return null;
     try {
@@ -254,5 +236,4 @@ export class HistoryManager {
   }
 }
 
-// Global default history manager singleton
 export const historyManager = new HistoryManager();

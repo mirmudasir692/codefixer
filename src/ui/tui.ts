@@ -17,29 +17,16 @@ import {
   wrapText,
 } from "./ansi.js";
 import { welcomeLines } from "./banner.js";
-import { getProjectFiles, type FileSuggestion } from "../utils/path.js";
-
-export interface TuiStatus {
-  mode: string;
-  model: string;
-  provider: string;
-  cwd: string;
-  branch: string;
-}
-
-export interface SlashCommand {
-  name: string;
-  args?: string;
-  description: string;
-}
+import { getProjectFiles } from "../utils/path.js";
+import type { TuiStatus, SlashCommand, FileSuggestion } from "../types/index.js";
 
 export const SLASH_COMMANDS: SlashCommand[] = [
   { name: "/help", description: "List all available interactive commands" },
-  { name: "/model", args: "[name]", description: "View or switch Ollama model" },
+  { name: "/model", description: "View or switch Ollama model" },
   { name: "/messages", description: "List conversation messages & change counts" },
   { name: "/history", description: "Show recent checkpoints & diff timeline" },
   { name: "/undo", description: "Revert the most recent file change" },
-  { name: "/revert", args: "<n> | <id> | file <p>", description: "Revert files to earlier checkpoint" },
+  { name: "/revert", description: "Revert files to earlier checkpoint" },
   { name: "/clear", description: "Clear current conversation screen" },
   { name: "/exit", description: "Exit Codefixer" },
 ];
@@ -47,14 +34,6 @@ export const SLASH_COMMANDS: SlashCommand[] = [
 const MAX_TRANSCRIPT_LINES = 1000;
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-/**
- * Modern, rock-solid terminal UI with fixed responsive layout:
- * - Header with status badge & spinner
- * - Scrollable conversation & welcome pane
- * - Pixel-perfect framed input box
- * - Clean status & HUD bar
- * - Optional session & shortcut sidebar on wide screens
- */
 export class Tui {
   private active = false;
   private transcript: string[] = [];
@@ -164,9 +143,9 @@ export class Tui {
         type: "command",
         title: " Commands ",
         items: cmds.map((c) => ({
-          label: c.name + (c.args ? ` ${c.args}` : ""),
+          label: c.name,
           detail: c.description,
-          value: c.name + (c.args ? " " : ""),
+          value: c.name,
         })),
       };
     }
@@ -174,7 +153,6 @@ export class Tui {
     return null;
   }
 
-  /** Called when the user presses Ctrl+C / Ctrl+D on empty input. */
   onExit: (() => void) | null = null;
 
   get isActive(): boolean {
@@ -213,8 +191,6 @@ export class Tui {
     this.pendingConfirm = null;
   }
 
-  // ---- Output ------------------------------------------------------------
-
   print(text: string): void {
     if (!this.active) return;
     const cols = Math.max(48, process.stdout.columns || 100);
@@ -232,14 +208,12 @@ export class Tui {
     if (this.transcript.length > MAX_TRANSCRIPT_LINES) {
       this.transcript = this.transcript.slice(-MAX_TRANSCRIPT_LINES);
     }
-    // Snap scroll to bottom on new output
     this.scrollOffset = 0;
     this.scheduleRender();
   }
 
   private formatLine(raw: string): string {
     if (!raw) return "";
-    // If it already has ANSI styling, keep it
     if (raw.includes("\x1b[")) return raw;
 
     if (raw.startsWith("# ")) return paint(raw, colors.white, BOLD);
@@ -283,8 +257,6 @@ export class Tui {
       this.scheduleRender();
     }
   }
-
-  // ---- Input -------------------------------------------------------------
 
   prompt(placeholder = "Ask Codefixer anything…"): Promise<string> {
     this.placeholder = placeholder;
@@ -342,7 +314,7 @@ export class Tui {
   private handleEscape(seq: string): void {
     const suggestions = this.getActiveSuggestions();
     switch (seq) {
-      case "\x1b[A": // Up arrow
+      case "\x1b[A":
         if (suggestions && suggestions.items.length > 0) {
           this.selectedSuggestionIndex =
             (this.selectedSuggestionIndex - 1 + suggestions.items.length) %
@@ -355,7 +327,7 @@ export class Tui {
           this.cursor = this.input.length;
         }
         break;
-      case "\x1b[B": // Down arrow
+      case "\x1b[B":
         if (suggestions && suggestions.items.length > 0) {
           this.selectedSuggestionIndex =
             (this.selectedSuggestionIndex + 1) % suggestions.items.length;
@@ -368,32 +340,32 @@ export class Tui {
         this.input = this.commandHistory[this.historyIndex] ?? "";
         this.cursor = this.input.length;
         break;
-      case "\x1b[C": // Right arrow
+      case "\x1b[C":
         this.cursor = Math.min(this.input.length, this.cursor + 1);
         break;
-      case "\x1b[D": // Left arrow
+      case "\x1b[D":
         this.cursor = Math.max(0, this.cursor - 1);
         break;
-      case "\x1b[H": // Home
+      case "\x1b[H":
       case "\x1b[1~":
         this.cursor = 0;
         break;
-      case "\x1b[F": // End
+      case "\x1b[F":
       case "\x1b[4~":
         this.cursor = this.input.length;
         break;
-      case "\x1b[5~": // PageUp — scroll back
-      case "\x1b[1;5A": // Ctrl+Up
+      case "\x1b[5~":
+      case "\x1b[1;5A":
         this.scrollOffset = Math.min(
           Math.max(0, this.transcript.length - 1),
           this.scrollOffset + 5,
         );
         break;
-      case "\x1b[6~": // PageDown — scroll forward
-      case "\x1b[1;5B": // Ctrl+Down
+      case "\x1b[6~":
+      case "\x1b[1;5B":
         this.scrollOffset = Math.max(0, this.scrollOffset - 5);
         break;
-      case "\x1b[Z": // Shift+Tab — agents hint
+      case "\x1b[Z":
         this.hint = `Active agent: ${this.sessions[0] ?? "codefixer"} (default)`;
         break;
     }
@@ -411,7 +383,6 @@ export class Tui {
           i += match[0].length;
           continue;
         }
-        // Bare Escape: close suggestions if open
         if (this.getActiveSuggestions()) {
           this.hideSuggestions = true;
           this.scheduleRender();
@@ -475,13 +446,7 @@ export class Tui {
               }
             } else if (this.input.startsWith("/") && this.input.trim() !== chosen.value.trim()) {
               const cmd = SLASH_COMMANDS.find((c) => c.name === chosen.value.trim());
-              if (cmd && !cmd.args) {
-                this.input = cmd.name;
-                this.cursor = this.input.length;
-                this.submitInput();
-                i++;
-                continue;
-              } else if (!this.input.includes(" ")) {
+              if (cmd) {
                 this.input = chosen.value;
                 this.cursor = this.input.length;
                 this.scheduleRender();
@@ -509,21 +474,16 @@ export class Tui {
           this.selectedSuggestionIndex = 0;
         }
       } else if (ch === "\x15") {
-        // Ctrl+U: clear input
         this.input = "";
         this.cursor = 0;
         this.hideSuggestions = false;
       } else if (ch === "\x0b") {
-        // Ctrl+K: clear to end of line
         this.input = this.input.slice(0, this.cursor);
       } else if (ch === "\x01") {
-        // Ctrl+A: go to start
         this.cursor = 0;
       } else if (ch === "\x05") {
-        // Ctrl+E: go to end
         this.cursor = this.input.length;
       } else if (ch === "\x10") {
-        // Ctrl+P: show commands
         this.hint = "Commands: /messages /history /undo /revert file <path> /help";
       } else if (ch >= " ") {
         this.input =
@@ -596,8 +556,6 @@ export class Tui {
     this.scheduleRender();
   }
 
-  // ---- Rendering ---------------------------------------------------------
-
   private onResize = (): void => {
     if (!this.active) return;
     this.paintScreen();
@@ -625,14 +583,6 @@ export class Tui {
     const mainW = cols - sidebarW;
     const out: string[] = [];
 
-    // Layout rows:
-    // Row 1: Header bar
-    // Rows 2 .. inputTop - 1: Conversation or Welcome Banner
-    // Row inputTop: Input box top border ╭─────────╮
-    // Row inputTop + 1: Input text line  │ ❯ ...   │
-    // Row inputTop + 2: Input box bottom ╰─────────╯
-    // Row rows - 1: Status bar
-    // Row rows: Empty / border buffer
     const inputTop = Math.max(4, rows - 4);
     const suggestions = this.getActiveSuggestions();
     const hasSuggestions = Boolean(suggestions && suggestions.items.length > 0);
@@ -647,7 +597,6 @@ export class Tui {
       (suggestionHeight > 0 && suggestionTop > 2 ? suggestionTop : inputTop) - 2,
     );
 
-    // Sidebar line buffer (if visible)
     const sidebarLines: string[] = [];
     if (sidebarW > 0) {
       sidebarLines.push(paint(" Sessions", colors.white, BOLD));
@@ -688,12 +637,10 @@ export class Tui {
       }
     }
 
-    // Compose every row strictly to prevent any ghost artifacts or bleed
     for (let y = 1; y <= rows; y++) {
       let mainText = "";
 
       if (y === 1) {
-        // --- Header Bar ---
         const badge = paint(" CODEFIXER ", colors.white, colors.accentBg, BOLD);
         const spinner = this.busy
           ? " " + paint(SPINNER[this.spinnerIndex] + " Thinking…", colors.accent, BOLD)
@@ -703,7 +650,6 @@ export class Tui {
         const space = Math.max(1, mainW - 1 - visualWidth(left) - visualWidth(right));
         mainText = left + " ".repeat(space) + right;
       } else if (suggestionHeight > 0 && y >= suggestionTop && y < inputTop) {
-        // --- Floating Suggestions Box (Files / Commands) ---
         const boxW = Math.max(20, mainW - 4);
         const title = suggestions?.title ?? " Suggestions ";
         if (y === suggestionTop) {
@@ -749,7 +695,6 @@ export class Tui {
             paint("│", colors.accent);
         }
       } else if (y >= 2 && y < (suggestionHeight > 0 ? suggestionTop : inputTop)) {
-        // --- Main Conversation or Welcome Banner ---
         const convIndex = y - 2;
         const isWelcome = this.transcript.length === 0;
 
@@ -763,7 +708,6 @@ export class Tui {
             mainText = "";
           }
         } else {
-          // If at the bottom of the conversation area and there is a hint or scroll offset:
           if (convIndex === convVisibleLines - 1 && this.hint) {
             mainText = "  " + paint(this.hint, colors.orange);
           } else if (convIndex === convVisibleLines - 1 && this.scrollOffset > 0) {
@@ -785,12 +729,10 @@ export class Tui {
           }
         }
       } else if (y === inputTop) {
-        // --- Framed Input Box Top Border ---
         const boxW = Math.max(20, mainW - 4);
         const borderColor = this.busy ? colors.accent : colors.dim;
         mainText = "  " + paint("╭" + "─".repeat(boxW - 2) + "╮", borderColor);
       } else if (y === inputTop + 1) {
-        // --- Framed Input Box Content Line ---
         const boxW = Math.max(20, mainW - 4);
         const borderColor = this.busy ? colors.accent : colors.dim;
         const isConfirm = Boolean(this.pendingConfirm);
@@ -799,11 +741,6 @@ export class Tui {
           ? paint(" ? ", colors.white, colors.orangeBg, BOLD)
           : paint(" ❯ ", colors.white, colors.accentBg, BOLD);
 
-        // Box border length is boxW + 2 total visible characters.
-        // Left side: "  " (2) + "│" (1) + " " (1) + mark (3) + " " (1) = 8
-        // Right side: " " (1) + "│" (1) = 2
-        // Total outer length: 8 + innerW + 2 = 10 + innerW
-        // Box border outer length is boxW + 2, so innerW = boxW - 8
         const innerW = Math.max(1, boxW - 8);
 
         let inputFormatted = "";
@@ -836,12 +773,10 @@ export class Tui {
           " " +
           paint("│", borderColor);
       } else if (y === inputTop + 2) {
-        // --- Framed Input Box Bottom Border ---
         const boxW = Math.max(20, mainW - 4);
         const borderColor = this.busy ? colors.accent : colors.dim;
         mainText = "  " + paint("╰" + "─".repeat(boxW - 2) + "╯", borderColor);
       } else if (y === rows - 1) {
-        // --- Status Bar ---
         const status = this.status;
         const modeBadge = paint(` ${status.mode} `, colors.white, colors.panel, BOLD);
         const providerText = status.provider
@@ -857,14 +792,11 @@ export class Tui {
         const space = Math.max(1, mainW - 1 - visualWidth(left) - visualWidth(right));
         mainText = left + " ".repeat(space) + right;
       } else {
-        // Bottom-most spacer line
         mainText = "";
       }
 
-      // Exact fit to main pane width
       const fittedMain = fit(mainText, mainW - 1);
 
-      // Append sidebar if active
       let sideText = "";
       if (sidebarW > 0) {
         const sideContent = sidebarLines[y - 1] ?? "";
@@ -878,8 +810,6 @@ export class Tui {
   }
 }
 
-// Active instance registry so the logger / confirmation helpers can route
-// their output into the UI while it is running.
 let activeTui: Tui | null = null;
 
 export function setActiveTui(tui: Tui | null): void {

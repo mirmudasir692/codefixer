@@ -1,52 +1,48 @@
-// Microkernel Tool Registry: manages pluggable tools and unified invocation
+import type { RegisteredTool, ToolCallPayload, MirascopeTool } from "../types/index.js";
 
 export class ToolRegistry {
-  private tools = new Map<string, any>();
+  private tools = new Map<string, RegisteredTool>();
 
-  // Registers a tool plugin
-  register(name: string, tool: any): void {
+  register(name: string, tool: RegisteredTool): void {
     this.tools.set(name, tool);
   }
 
-  // Gets a tool by name
-  get(name: string): any {
+  get(name: string): RegisteredTool | undefined {
     return this.tools.get(name);
   }
 
-  // Returns all registered tool names
   getNames(): string[] {
     return Array.from(this.tools.keys());
   }
 
-  // Returns all registered tool instances for LLM definition
-  getAll(): any[] {
-    return Array.from(this.tools.values());
+  getAll<T extends RegisteredTool = MirascopeTool>(): T[] {
+    return Array.from(this.tools.values()) as T[];
   }
 
-  // Returns a dictionary map of tools by name
-  getMap(): Record<string, any> {
+  getMap(): Record<string, RegisteredTool> {
     return Object.fromEntries(this.tools.entries());
   }
 
-  // Executes a tool shape-agnostically with error handling
-  async execute(nameOrTool: string | any, args: any): Promise<unknown> {
+  async execute(nameOrTool: string | RegisteredTool, args: unknown): Promise<unknown> {
     const tool = typeof nameOrTool === "string" ? this.get(nameOrTool) : nameOrTool;
     if (!tool) {
       throw new Error(`Tool not found: ${String(nameOrTool)}`);
     }
 
-    // Direct Mirascope callable
     if (typeof tool === "function") {
-      return await tool(args ?? {});
+      const toolFn = tool as (args: unknown) => Promise<unknown> | unknown;
+      return await toolFn(args ?? {});
     }
 
-    // Object with execute method
-    if (typeof tool.execute === "function") {
+    if ("execute" in tool && typeof tool.execute === "function") {
       const rawArgs = typeof args === "string" ? args : JSON.stringify(args ?? {});
-      const out = await tool.execute({ id: "text-call", name: tool.name ?? "tool", args: rawArgs });
+      const toolName = "name" in tool && typeof tool.name === "string" ? tool.name : "tool";
+      const payload: ToolCallPayload = { id: "text-call", name: toolName, args: rawArgs };
+      const out = await tool.execute(payload);
       if (out && typeof out === "object" && "result" in out) {
-        if (out.error) throw out.error;
-        return out.result;
+        const withResult = out as { result: unknown; error?: unknown };
+        if (withResult.error) throw withResult.error;
+        return withResult.result;
       }
       return out;
     }
@@ -55,6 +51,4 @@ export class ToolRegistry {
   }
 }
 
-// Global default tool registry singleton
 export const registry = new ToolRegistry();
-

@@ -2,12 +2,11 @@ import { formatToolArgs } from "./format.js";
 import { getActiveTui } from "../ui/tui.js";
 import { BOLD, colors, paint } from "../ui/ansi.js";
 
-// Clean, unified terminal logger for agent operations. When the TUI is
-// running, lines are appended to its conversation pane instead of being
-// written straight to stdout.
 export const logger = {
-  toolCall(name: string, args: any) {
-    const formatted = formatToolArgs(args);
+  toolCall(name: string, args: unknown) {
+    const formatted = formatToolArgs(
+      args && typeof args === "object" ? (args as Record<string, unknown>) : null,
+    );
     const tui = getActiveTui();
     if (tui?.isActive) {
       tui.print(

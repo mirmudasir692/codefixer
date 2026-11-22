@@ -1,7 +1,6 @@
 import { llm } from "mirascope";
 import { z } from "zod";
 
-// Signal task completion with a summary of changes
 export const finishTool = llm.defineTool({
   name: "finish",
   description:
@@ -25,4 +24,3 @@ export const finishTool = llm.defineTool({
     };
   },
 });
-

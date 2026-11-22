@@ -1,7 +1,7 @@
 import path from "node:path";
 import { readdirSync } from "node:fs";
+import type { FileSuggestion } from "../types/index.js";
 
-// Ensures targeted file path stays safely within project root
 export function assertInsideProject(target: string, rootDir: string = process.cwd()): string {
   const root = rootDir;
   const cleaned = (!target || target === "project-root" || target === "root" || target === "./") ? "." : target;
@@ -12,10 +12,12 @@ export function assertInsideProject(target: string, rootDir: string = process.cw
   return resolved;
 }
 
-export interface FileSuggestion {
-  name: string;
-  path: string;
-  isDir: boolean;
+export function mutationPath(args: unknown): string {
+  if (args && typeof args === "object" && "path" in args) {
+    const p = (args as { path: unknown }).path;
+    return typeof p === "string" ? p : "";
+  }
+  return "";
 }
 
 const IGNORE_PATTERNS = new Set([
@@ -30,9 +32,6 @@ let cachedFiles: FileSuggestion[] = [];
 let lastScanTime = 0;
 const CACHE_TTL_MS = 2000;
 
-/**
- * Fast recursive scan of project files and directories, ignoring build/vcs artifacts.
- */
 export function getProjectFiles(
   rootDir: string = process.cwd(),
   forceRefresh = false,
