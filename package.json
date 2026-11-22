@@ -20,7 +20,11 @@
     "dev": "tsx src/index.ts",
     "start": "tsx src/index.ts",
     "test": "tsx --test test/**/*.test.ts",
-    "prepare": "npm run build",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare": "husky && npm run build",
     "prepack": "npm run build"
   },
   "repository": {
@@ -60,8 +64,15 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^26.6.6",
+    "eslint": "^10.15.0",
+    "eslint-config-prettier": "^10.1.8",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.6.2",
+    "prettier": "^3.10.1",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.73.0"
   }
 }

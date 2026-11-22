@@ -5,9 +5,7 @@ export function truncate(text: string, max = 5000): string {
 
 export function numberLines(lines: string[], startLine: number): string {
   const width = String(startLine + lines.length - 1).length;
-  return lines
-    .map((line, i) => `${String(startLine + i).padStart(width)}\t${line}`)
-    .join("\n");
+  return lines.map((line, i) => `${String(startLine + i).padStart(width)}\t${line}`).join("\n");
 }
 
 export function formatToolArgs(args: Record<string, unknown> | null): string {

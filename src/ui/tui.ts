@@ -335,10 +335,7 @@ export class Tui {
             (this.selectedSuggestionIndex + 1) % suggestions.items.length;
           break;
         }
-        this.historyIndex = Math.min(
-          this.commandHistory.length,
-          this.historyIndex + 1,
-        );
+        this.historyIndex = Math.min(this.commandHistory.length, this.historyIndex + 1);
         this.input = this.commandHistory[this.historyIndex] ?? "";
         this.cursor = this.input.length;
         break;
@@ -398,8 +395,7 @@ export class Tui {
       if (ch === "\t") {
         const suggestions = this.getActiveSuggestions();
         if (suggestions && suggestions.items.length > 0) {
-          const chosen =
-            suggestions.items[this.selectedSuggestionIndex % suggestions.items.length];
+          const chosen = suggestions.items[this.selectedSuggestionIndex % suggestions.items.length];
           if (chosen) {
             if (suggestions.type === "file") {
               const mention = this.getActiveMention();
@@ -429,8 +425,7 @@ export class Tui {
       if (ch === "\r" || ch === "\n") {
         const suggestions = this.getActiveSuggestions();
         if (suggestions && suggestions.items.length > 0) {
-          const chosen =
-            suggestions.items[this.selectedSuggestionIndex % suggestions.items.length];
+          const chosen = suggestions.items[this.selectedSuggestionIndex % suggestions.items.length];
           if (chosen) {
             if (suggestions.type === "file") {
               const mention = this.getActiveMention();
@@ -469,8 +464,7 @@ export class Tui {
         }
       } else if (ch === "\x7f" || ch === "\x08") {
         if (this.cursor > 0) {
-          this.input =
-            this.input.slice(0, this.cursor - 1) + this.input.slice(this.cursor);
+          this.input = this.input.slice(0, this.cursor - 1) + this.input.slice(this.cursor);
           this.cursor--;
           this.hideSuggestions = false;
           this.selectedSuggestionIndex = 0;
@@ -488,8 +482,7 @@ export class Tui {
       } else if (ch === "\x10") {
         this.hint = "Commands: /messages /history /undo /revert file <path> /help";
       } else if (ch >= " ") {
-        this.input =
-          this.input.slice(0, this.cursor) + ch + this.input.slice(this.cursor);
+        this.input = this.input.slice(0, this.cursor) + ch + this.input.slice(this.cursor);
         this.cursor++;
         this.hint = "";
         this.hideSuggestions = false;
@@ -521,13 +514,7 @@ export class Tui {
           const ok = this.confirmInput.trim() === "yes-really";
           this.pendingConfirm = null;
           this.confirmInput = "";
-          this.print(
-            paint(
-              ok ? "✓ Confirmed" : "✗ Aborted",
-              ok ? colors.green : colors.red,
-              BOLD,
-            ),
-          );
+          this.print(paint(ok ? "✓ Confirmed" : "✗ Aborted", ok ? colors.green : colors.red, BOLD));
           resolve?.(ok);
         } else {
           this.finishConfirm(false);
@@ -591,8 +578,7 @@ export class Tui {
     const maxSuggestions = Math.min(6, Math.max(1, inputTop - 5));
     const visibleSuggestions =
       hasSuggestions && suggestions ? suggestions.items.slice(0, maxSuggestions) : [];
-    const suggestionHeight =
-      visibleSuggestions.length > 0 ? visibleSuggestions.length + 2 : 0;
+    const suggestionHeight = visibleSuggestions.length > 0 ? visibleSuggestions.length + 2 : 0;
     const suggestionTop = inputTop - suggestionHeight;
     const convVisibleLines = Math.max(
       1,
@@ -629,9 +615,7 @@ export class Tui {
         );
       }
       if (this.status.branch) {
-        sidebarLines.push(
-          paint("Branch: ", colors.dim) + paint(this.status.branch, colors.text),
-        );
+        sidebarLines.push(paint("Branch: ", colors.dim) + paint(this.status.branch, colors.text));
       }
       if (this.version) {
         sidebarLines.push(paint("─".repeat(sidebarW - 3), colors.dim));
@@ -640,7 +624,7 @@ export class Tui {
     }
 
     for (let y = 1; y <= rows; y++) {
-      let mainText = "";
+      let mainText: string;
 
       if (y === 1) {
         const badge = paint(" CODEFIXER ", colors.white, colors.accentBg, BOLD);
@@ -672,9 +656,7 @@ export class Tui {
           const innerW = boxW - 4;
           const itemIdx = y - suggestionTop - 1;
           const item = visibleSuggestions[itemIdx];
-          const isSelected =
-            itemIdx ===
-            (this.selectedSuggestionIndex % visibleSuggestions.length);
+          const isSelected = itemIdx === this.selectedSuggestionIndex % visibleSuggestions.length;
 
           const prefix = isSelected ? paint(" ▸ ", colors.accent, BOLD) : "   ";
           const label = isSelected
@@ -682,10 +664,7 @@ export class Tui {
             : paint(item.label, colors.accent);
           const labelLen = visualWidth(item.label);
           const padLen = Math.max(1, 28 - labelLen);
-          const detail = paint(
-            item.detail,
-            isSelected ? colors.text : colors.dim,
-          );
+          const detail = paint(item.detail, isSelected ? colors.text : colors.dim);
           const itemContent = prefix + label + " ".repeat(padLen) + detail;
 
           mainText =
@@ -745,10 +724,9 @@ export class Tui {
 
         const innerW = Math.max(1, boxW - 8);
 
-        let inputFormatted = "";
+        let inputFormatted: string;
         if (isConfirm) {
-          const val =
-            this.confirmText + (this.confirmInput ? " " + this.confirmInput : "");
+          const val = this.confirmText + (this.confirmInput ? " " + this.confirmInput : "");
           inputFormatted = paint(val, colors.orange, BOLD);
         } else if (this.input) {
           const before = this.input.slice(0, this.cursor);

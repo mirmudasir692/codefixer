@@ -14,7 +14,7 @@ const MUTATING_TOOLS = new Set([
 ]);
 export async function runTurn(userInput, history) {
     let workingHistory = history;
-    const fileMentions = [...userInput.matchAll(/@([a-zA-Z0-9_.\-\/]+)/g)]
+    const fileMentions = [...userInput.matchAll(/@([a-zA-Z0-9_.\-/]+)/g)]
         .map((m) => m[1])
         .filter((p) => {
         try {
@@ -49,7 +49,10 @@ export async function runTurn(userInput, history) {
         };
     }
     const agent = codeAgent;
-    let response = (await agent({ history: workingHistory, input: userInput }));
+    let response = (await agent({
+        history: workingHistory,
+        input: userInput,
+    }));
     let rounds = 0;
     let finished = false;
     let finishSummary;
@@ -202,7 +205,10 @@ export async function runTurn(userInput, history) {
                 ? " You have not modified any files yet. The user asked for a change: call write_file (full content) or edit_file (targeted change) now with the real new content. Do not call read_file again — its content is already above."
                 : " The user asked an informational question (no files to edit). Synthesize your findings from the tool results above and answer in plain English now. Do not call any tools.";
         const workingInput = `User request: "${userInput}".\nUse the tool results above to fulfill the user's request. If changes are needed, proceed with the appropriate edit tool. If you have completed the task or have the full answer, respond in plain English. Do not re-call any tool whose result is already displayed above.${nudge}`;
-        response = (await agent({ history: workingHistory, input: workingInput }));
+        response = (await agent({
+            history: workingHistory,
+            input: workingInput,
+        }));
     }
     const rawText = response.text() ?? "";
     const cleanedText = rawText.replace(/```(?:json)?\s*\{[\s\S]*?\}\s*```/g, "").trim();

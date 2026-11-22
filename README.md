@@ -58,11 +58,13 @@ npm install -g github:mirmudasir692/codefixer
 ```
 
 Now you can run Codefixer from **any project or directory**:
+
 ```bash
 codefixer
 ```
 
 To update to the latest version anytime:
+
 ```bash
 npm install -g github:mirmudasir692/codefixer
 ```
@@ -82,22 +84,26 @@ npx github:mirmudasir692/codefixer
 ### Option 3: Local Development Setup
 
 1. **Clone the repository**:
+
    ```bash
    git clone https://github.com/mirmudasir692/codefixer.git
    cd codefixer
    ```
 
 2. **Install dependencies**:
+
    ```bash
    npm install
    ```
 
 3. **Build TypeScript**:
+
    ```bash
    npm run build
    ```
 
 4. **Link globally for local development**:
+
    ```bash
    npm link
    # now 'codefixer' command points to your local repo!
@@ -129,7 +135,7 @@ Run `/configure-model` inside the REPL. You will be prompted for:
 
 --- Configure Model ---
 Model URL (e.g. http://localhost:11434/v1 or https://api.openai.com/v1): http://localhost:11434/v1
-API Key (leave blank if not required): 
+API Key (leave blank if not required):
 Model Name (e.g. qwen2.5:7b, gpt-4o): qwen2.5-coder:7b
 
 ✓ Model "qwen2.5-coder:7b" configured and saved successfully!
@@ -156,6 +162,7 @@ Select a model (1-3 or name, or press Enter to cancel): 2
 ```
 
 You can also switch directly by number or name:
+
 ```text
 > /models 1
 > /models gpt-4o
@@ -163,13 +170,13 @@ You can also switch directly by number or name:
 
 ### Common Provider Examples
 
-| Provider | Endpoint URL | API Key | Model Name Example |
-|---|---|---|---|
-| **Ollama (Local)** | `http://localhost:11434/v1` | *(blank)* | `qwen2.5-coder:7b`, `llama3.2:3b` |
-| **OpenAI** | `https://api.openai.com/v1` | `sk-...` | `gpt-4o`, `gpt-4o-mini` |
-| **Groq** | `https://api.groq.com/openai/v1` | `gsk_...` | `llama-3.3-70b-versatile` |
-| **OpenRouter** | `https://openrouter.ai/api/v1` | `sk-or-...` | `anthropic/claude-3.5-sonnet` |
-| **DeepSeek** | `https://api.deepseek.com/v1` | `sk-...` | `deepseek-chat`, `deepseek-coder` |
+| Provider           | Endpoint URL                     | API Key     | Model Name Example                |
+| ------------------ | -------------------------------- | ----------- | --------------------------------- |
+| **Ollama (Local)** | `http://localhost:11434/v1`      | _(blank)_   | `qwen2.5-coder:7b`, `llama3.2:3b` |
+| **OpenAI**         | `https://api.openai.com/v1`      | `sk-...`    | `gpt-4o`, `gpt-4o-mini`           |
+| **Groq**           | `https://api.groq.com/openai/v1` | `gsk_...`   | `llama-3.3-70b-versatile`         |
+| **OpenRouter**     | `https://openrouter.ai/api/v1`   | `sk-or-...` | `anthropic/claude-3.5-sonnet`     |
+| **DeepSeek**       | `https://api.deepseek.com/v1`    | `sk-...`    | `deepseek-chat`, `deepseek-coder` |
 
 > **Environment Variable Override**: You can also launch Codefixer with a specific model directly via `CODEFIXER_MODEL=ollama/qwen2.5:7b npm start`.
 
@@ -196,19 +203,19 @@ When executed in a standard terminal (TTY), Codefixer launches a full-screen int
 
 ### Keyboard Shortcuts
 
-| Key | Description |
-|---|---|
-| <kbd>Enter</kbd> | Send input or confirm selected autocomplete item |
-| <kbd>↑</kbd> / <kbd>↓</kbd> | Navigate command history or autocomplete suggestions |
-| <kbd>←</kbd> / <kbd>→</kbd> | Move input cursor left/right |
-| <kbd>Tab</kbd> | Accept top suggestion or autocomplete command / file mention |
-| <kbd>Esc</kbd> | Close suggestion box |
-| <kbd>PageUp</kbd> / <kbd>PageDown</kbd> | Scroll conversation transcript history up/down |
-| <kbd>Ctrl+C</kbd> | Clear current line; exit if input is empty |
-| <kbd>Ctrl+U</kbd> | Clear input line |
-| <kbd>Ctrl+A</kbd> / <kbd>Ctrl+E</kbd> | Move cursor to beginning / end of line |
+| Key                                     | Description                                                  |
+| --------------------------------------- | ------------------------------------------------------------ |
+| <kbd>Enter</kbd>                        | Send input or confirm selected autocomplete item             |
+| <kbd>↑</kbd> / <kbd>↓</kbd>             | Navigate command history or autocomplete suggestions         |
+| <kbd>←</kbd> / <kbd>→</kbd>             | Move input cursor left/right                                 |
+| <kbd>Tab</kbd>                          | Accept top suggestion or autocomplete command / file mention |
+| <kbd>Esc</kbd>                          | Close suggestion box                                         |
+| <kbd>PageUp</kbd> / <kbd>PageDown</kbd> | Scroll conversation transcript history up/down               |
+| <kbd>Ctrl+C</kbd>                       | Clear current line; exit if input is empty                   |
+| <kbd>Ctrl+U</kbd>                       | Clear input line                                             |
+| <kbd>Ctrl+A</kbd> / <kbd>Ctrl+E</kbd>   | Move cursor to beginning / end of line                       |
 
-*(Non-TTY environments, such as CI pipelines or redirected inputs, automatically fall back to a standard readline prompt).*
+_(Non-TTY environments, such as CI pipelines or redirected inputs, automatically fall back to a standard readline prompt)._
 
 ### Slash Command Autocomplete
 
@@ -222,20 +229,20 @@ Type `@` followed by any path characters (e.g. `@src/core/`) to trigger the file
 
 ## CLI Commands Reference
 
-| Command | Usage | Description |
-|---|---|---|
-| `/configure-model` | `/configure-model` | Interactively configure URL, API key, and name for an LLM provider |
-| `/models` | `/models [name\|index]` | List saved models and select active model |
-| `/model` | `/model [name]` | View active model or switch directly |
-| `/messages` | `/messages` | View numbered conversation messages with file change counters |
-| `/history` | `/history` | View recent file modification checkpoints with hashes & timestamps |
-| `/undo` | `/undo` | Immediately revert the most recent file change |
-| `/revert <n>` | `/revert 2` | Revert all file changes made from message `n` onward |
-| `/revert <id>` | `/revert cp_173169...` | Roll back repository state to a specific checkpoint ID |
-| `/revert file` | `/revert file <path>` | Restore a specific file to its previous state |
-| `/clear` | `/clear` | Clear the current conversation transcript |
-| `/help` | `/help` | Print all available interactive commands |
-| `exit` / `quit` | `exit` | Exit Codefixer |
+| Command            | Usage                   | Description                                                        |
+| ------------------ | ----------------------- | ------------------------------------------------------------------ |
+| `/configure-model` | `/configure-model`      | Interactively configure URL, API key, and name for an LLM provider |
+| `/models`          | `/models [name\|index]` | List saved models and select active model                          |
+| `/model`           | `/model [name]`         | View active model or switch directly                               |
+| `/messages`        | `/messages`             | View numbered conversation messages with file change counters      |
+| `/history`         | `/history`              | View recent file modification checkpoints with hashes & timestamps |
+| `/undo`            | `/undo`                 | Immediately revert the most recent file change                     |
+| `/revert <n>`      | `/revert 2`             | Revert all file changes made from message `n` onward               |
+| `/revert <id>`     | `/revert cp_173169...`  | Roll back repository state to a specific checkpoint ID             |
+| `/revert file`     | `/revert file <path>`   | Restore a specific file to its previous state                      |
+| `/clear`           | `/clear`                | Clear the current conversation transcript                          |
+| `/help`            | `/help`                 | Print all available interactive commands                           |
+| `exit` / `quit`    | `exit`                  | Exit Codefixer                                                     |
 
 ---
 

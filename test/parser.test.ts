@@ -25,10 +25,7 @@ def add_greeting(name):
 
     const parsed = safeParse(raw);
     assert.equal(parsed.path, "mudasir.py");
-    assert.equal(
-      parsed.content,
-      '\ndef add_greeting(name):\n    return f"Hello, {name}!"\n',
-    );
+    assert.equal(parsed.content, '\ndef add_greeting(name):\n    return f"Hello, {name}!"\n');
   });
 
   test("escapes raw newlines inside string values", () => {

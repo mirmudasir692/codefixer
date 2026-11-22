@@ -2,7 +2,7 @@ import path from "node:path";
 import { readdirSync } from "node:fs";
 export function assertInsideProject(target, rootDir = process.cwd()) {
     const root = rootDir;
-    const cleaned = (!target || target === "project-root" || target === "root" || target === "./") ? "." : target;
+    const cleaned = !target || target === "project-root" || target === "root" || target === "./" ? "." : target;
     const resolved = path.resolve(root, cleaned);
     if (!resolved.startsWith(root)) {
         throw new Error(`Path "${target}" is outside project root.`);
@@ -16,13 +16,7 @@ export function mutationPath(args) {
     }
     return "";
 }
-const IGNORE_PATTERNS = new Set([
-    "node_modules",
-    "dist",
-    ".git",
-    ".gemini",
-    "package-lock.json",
-]);
+const IGNORE_PATTERNS = new Set(["node_modules", "dist", ".git", ".gemini", "package-lock.json"]);
 let cachedFiles = [];
 let lastScanTime = 0;
 const CACHE_TTL_MS = 2000;

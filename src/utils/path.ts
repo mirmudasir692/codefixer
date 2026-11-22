@@ -4,7 +4,8 @@ import type { FileSuggestion } from "../types/index.js";
 
 export function assertInsideProject(target: string, rootDir: string = process.cwd()): string {
   const root = rootDir;
-  const cleaned = (!target || target === "project-root" || target === "root" || target === "./") ? "." : target;
+  const cleaned =
+    !target || target === "project-root" || target === "root" || target === "./" ? "." : target;
   const resolved = path.resolve(root, cleaned);
   if (!resolved.startsWith(root)) {
     throw new Error(`Path "${target}" is outside project root.`);
@@ -20,13 +21,7 @@ export function mutationPath(args: unknown): string {
   return "";
 }
 
-const IGNORE_PATTERNS = new Set([
-  "node_modules",
-  "dist",
-  ".git",
-  ".gemini",
-  "package-lock.json",
-]);
+const IGNORE_PATTERNS = new Set(["node_modules", "dist", ".git", ".gemini", "package-lock.json"]);
 
 let cachedFiles: FileSuggestion[] = [];
 let lastScanTime = 0;

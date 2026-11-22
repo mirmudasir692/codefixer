@@ -122,7 +122,9 @@ export class HistoryManager {
 
   async revertToCheckpoint(checkpointId: string): Promise<RevertResult> {
     const checkpoints = await this.getCheckpoints();
-    const targetIdx = checkpoints.findIndex((c) => c.id === checkpointId || c.id.startsWith(checkpointId));
+    const targetIdx = checkpoints.findIndex(
+      (c) => c.id === checkpointId || c.id.startsWith(checkpointId),
+    );
 
     if (targetIdx === -1) {
       return { ok: false, filesReverted: [], error: `Checkpoint "${checkpointId}" not found.` };
@@ -215,7 +217,9 @@ export class HistoryManager {
 
   async isGitRepo(): Promise<boolean> {
     try {
-      const { stdout } = await execAsync("git rev-parse --is-inside-work-tree", { cwd: this.rootDir });
+      const { stdout } = await execAsync("git rev-parse --is-inside-work-tree", {
+        cwd: this.rootDir,
+      });
       return stdout.trim() === "true";
     } catch {
       return false;
@@ -226,9 +230,12 @@ export class HistoryManager {
     if (!(await this.isGitRepo())) return null;
     try {
       await execAsync("git add -A", { cwd: this.rootDir });
-      const { stdout } = await execAsync(`git commit -m "codefixer checkpoint: ${message}" --no-verify`, {
-        cwd: this.rootDir,
-      });
+      const { stdout } = await execAsync(
+        `git commit -m "codefixer checkpoint: ${message}" --no-verify`,
+        {
+          cwd: this.rootDir,
+        },
+      );
       return stdout.trim();
     } catch {
       return null;

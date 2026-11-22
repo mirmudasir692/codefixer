@@ -4,7 +4,6 @@ import { homedir } from "node:os";
 import { ModelsConfigFile } from "../types/models.js";
 import { ConfiguredModel } from "../types/agent.js";
 
-
 export function getModelsFilePath(): string {
   if (process.env.CODEFIXER_MODELS_PATH) {
     return process.env.CODEFIXER_MODELS_PATH;
@@ -50,9 +49,7 @@ export async function getConfiguredModel(name: string): Promise<ConfiguredModel 
 
 export async function saveConfiguredModel(model: ConfiguredModel): Promise<ConfiguredModel> {
   const config = await readConfigFile();
-  const idx = config.models.findIndex(
-    (m) => m.name.toLowerCase() === model.name.toLowerCase(),
-  );
+  const idx = config.models.findIndex((m) => m.name.toLowerCase() === model.name.toLowerCase());
   if (idx !== -1) {
     config.models[idx] = { ...config.models[idx], ...model };
   } else {
@@ -65,9 +62,7 @@ export async function saveConfiguredModel(model: ConfiguredModel): Promise<Confi
 export async function deleteConfiguredModel(name: string): Promise<boolean> {
   const config = await readConfigFile();
   const initialLen = config.models.length;
-  config.models = config.models.filter(
-    (m) => m.name.toLowerCase() !== name.toLowerCase(),
-  );
+  config.models = config.models.filter((m) => m.name.toLowerCase() !== name.toLowerCase());
   if (config.models.length !== initialLen) {
     if (config.activeModel?.toLowerCase() === name.toLowerCase()) {
       delete config.activeModel;
@@ -102,7 +97,7 @@ export function normalizeModelUrl(rawUrl: string): string {
       parsed.pathname = "/v1";
       url = parsed.toString().replace(/\/+$/, "");
     }
-  } catch { }
+  } catch {}
   return url;
 }
 

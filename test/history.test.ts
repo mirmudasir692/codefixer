@@ -7,12 +7,14 @@ import { HistoryManager } from "../src/core/history.js";
 
 describe("Persistent History Management", () => {
   let tempDir: string;
-  let historyDir: string;
   let manager: HistoryManager;
   let testFile: string;
 
   beforeEach(async () => {
-    tempDir = path.join(os.tmpdir(), `codefixer_test_${Date.now()}_${Math.random().toString(36).slice(2)}`);
+    tempDir = path.join(
+      os.tmpdir(),
+      `codefixer_test_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+    );
     await mkdir(tempDir, { recursive: true });
 
     testFile = path.join(tempDir, "sample.txt");

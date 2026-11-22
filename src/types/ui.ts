@@ -23,4 +23,3 @@ export interface SuggestionState {
   selectedIndex: number;
   query: string;
 }
-

@@ -10,9 +10,7 @@ export const finishTool = llm.defineTool({
     "Do NOT call finish if verification is still failing.",
   validator: z.object({
     summary: z.string().describe("One-sentence summary of what you accomplished"),
-    files_changed: z
-      .array(z.string())
-      .describe("Paths of files you created or modified"),
+    files_changed: z.array(z.string()).describe("Paths of files you created or modified"),
   }),
   tool: async ({ summary, files_changed }) => {
     return {

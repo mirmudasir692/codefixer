@@ -3,7 +3,6 @@ import { z } from "zod";
 import { readFile, readdir, writeFile, unlink } from "node:fs/promises";
 import {
   assertInsideProject,
-  truncate,
   numberLines,
   confirm,
   confirmDestructive,
@@ -234,9 +233,7 @@ export const editFileTool = llm.defineTool({
     "Set replace_all=true to replace every occurrence (use for renames).",
   validator: z.object({
     path: z.string().describe("File path"),
-    old_string: z
-      .string()
-      .describe("Exact text to find (must be unique unless replace_all=true)"),
+    old_string: z.string().describe("Exact text to find (must be unique unless replace_all=true)"),
     new_string: z.string().describe("Replacement text"),
     replace_all: z
       .boolean()
@@ -424,11 +421,7 @@ export const insertFileTool = llm.defineTool({
     }
 
     const newLines = content.split("\n");
-    const updated = [
-      ...lines.slice(0, after_line),
-      ...newLines,
-      ...lines.slice(after_line),
-    ];
+    const updated = [...lines.slice(0, after_line), ...newLines, ...lines.slice(after_line)];
 
     const approved = await confirm(
       `\n[insert_file] ${filePath}: insert ${newLines.length} line(s) after line ${after_line}. Allow? [y/N] `,
@@ -556,11 +549,7 @@ export const replaceLinesTool = llm.defineTool({
 
     const newLines = new_content === "" ? [] : new_content.split("\n");
     const linesReplaced = end_line - start_line + 1;
-    const updated = [
-      ...lines.slice(0, start_line - 1),
-      ...newLines,
-      ...lines.slice(end_line),
-    ];
+    const updated = [...lines.slice(0, start_line - 1), ...newLines, ...lines.slice(end_line)];
 
     const approved = await confirm(
       `\n[replace_lines] ${filePath}: replace lines ${start_line}-${end_line} (${linesReplaced} lines). Allow? [y/N] `,

@@ -73,7 +73,9 @@ async function handleInput(
 
   if (trimmed === "/configure-model" || trimmed.startsWith("/configure-model ")) {
     logger.info("\n--- Configure Model ---");
-    const rawUrl = await promptInput("Model URL (e.g. http://localhost:11434/v1 or https://api.openai.com/v1): ");
+    const rawUrl = await promptInput(
+      "Model URL (e.g. http://localhost:11434/v1 or https://api.openai.com/v1): ",
+    );
     if (!rawUrl) {
       logger.warn("Model URL cannot be empty. Aborted.\n");
       return false;
@@ -179,7 +181,9 @@ async function handleInput(
       const activeConf = getActiveConfiguredModel();
       const currentName = activeConf ? `${activeConf.name} (${activeConf.url})` : MODEL_ID;
       logger.info(`\nActive Model: ${currentName}`);
-      logger.info("To switch, run: /model <name> or use /models to view/choose configured models\n");
+      logger.info(
+        "To switch, run: /model <name> or use /models to view/choose configured models\n",
+      );
     } else {
       const configured = await getConfiguredModel(target);
       if (configured) {
@@ -214,8 +218,7 @@ async function handleInput(
       const sorted = [...known.entries()].sort((a, b) => a[0] - b[0]);
       for (const [index, text] of sorted) {
         const count = checkpoints.filter((c) => c.messageId === index).length;
-        const changeLabel =
-          count === 0 ? "no changes" : `${count} change${count === 1 ? "" : "s"}`;
+        const changeLabel = count === 0 ? "no changes" : `${count} change${count === 1 ? "" : "s"}`;
         logger.info(`  ${index}. ${text}  (${changeLabel})`);
       }
       logger.info("");
@@ -232,8 +235,7 @@ async function handleInput(
       for (const cp of checkpoints) {
         const fileList = cp.files
           .map(
-            (f) =>
-              `${f.state === "created" ? "+" : f.state === "deleted" ? "-" : "~"} ${f.path}`,
+            (f) => `${f.state === "created" ? "+" : f.state === "deleted" ? "-" : "~"} ${f.path}`,
           )
           .join(", ");
         logger.info(
@@ -250,9 +252,9 @@ async function handleInput(
     if (result.ok) {
       const files = result.filesReverted.join(", ");
       logger.info(`\n✓ Reverted change [${result.checkpointId}]: ${files}\n`);
-      state.history = (
-        state.history + `\n(user undid the last change: ${files})\n`
-      ).slice(-MAX_HISTORY_CHARS);
+      state.history = (state.history + `\n(user undid the last change: ${files})\n`).slice(
+        -MAX_HISTORY_CHARS,
+      );
     } else {
       logger.warn(result.error ?? "Failed to revert.");
     }
@@ -288,9 +290,7 @@ async function handleInput(
         const files = result.filesReverted.length
           ? result.filesReverted.join(", ")
           : "(no files changed)";
-        logger.info(
-          `\n✓ Reverted all changes from message ${targetMessage} onward: ${files}\n`,
-        );
+        logger.info(`\n✓ Reverted all changes from message ${targetMessage} onward: ${files}\n`);
         state.history = (
           state.history +
           `\n(user reverted all file changes made from message ${targetMessage} onward)\n`
@@ -301,9 +301,7 @@ async function handleInput(
     } else {
       const result = await historyManager.revertToCheckpoint(arg);
       if (result.ok) {
-        logger.info(
-          `\n✓ Reverted to checkpoint [${arg}]: ${result.filesReverted.join(", ")}\n`,
-        );
+        logger.info(`\n✓ Reverted to checkpoint [${arg}]: ${result.filesReverted.join(", ")}\n`);
         state.history = (
           state.history +
           `\n(user reverted to checkpoint ${arg}: ${result.filesReverted.join(", ")})\n`
@@ -316,7 +314,9 @@ async function handleInput(
   }
 
   if (!codeAgent && !getActiveConfiguredModel() && !MODEL_ID) {
-    logger.warn("\n⚠ No model configured. Please run /configure-model to add an LLM provider and model.\n");
+    logger.warn(
+      "\n⚠ No model configured. Please run /configure-model to add an LLM provider and model.\n",
+    );
     return false;
   }
 
@@ -326,18 +326,13 @@ async function handleInput(
 
   onBusy?.(true);
   try {
-    const { text, transcriptLine, toolRounds } = await runTurn(
-      trimmed,
-      state.history,
-    );
+    const { text, transcriptLine, toolRounds } = await runTurn(trimmed, state.history);
     if (text) {
       logger.info("\n" + text + "\n");
     } else if (toolRounds > 0) {
       logger.info("\n✓ Done.\n");
     }
-    state.history = (state.history + "\n" + transcriptLine).slice(
-      -MAX_HISTORY_CHARS,
-    );
+    state.history = (state.history + "\n" + transcriptLine).slice(-MAX_HISTORY_CHARS);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.error(msg);
@@ -445,7 +440,9 @@ async function startPlainRepl(): Promise<void> {
     const modelLabel = activeConf ? `${activeConf.name} (${activeConf.url})` : MODEL_ID;
     logger.info(`Codefixer (${modelLabel}) — type 'exit' to quit.`);
   }
-  logger.info(`Commands: /models, /configure-model, /messages, /history, /undo, /revert <n>, /help\n`);
+  logger.info(
+    `Commands: /models, /configure-model, /messages, /history, /undo, /revert <n>, /help\n`,
+  );
 
   const state = newState();
   const closed = new Promise<null>((resolve) => rl.once("close", () => resolve(null)));

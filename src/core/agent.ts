@@ -85,7 +85,8 @@ export function createCodeAgent(model = MODEL_ID) {
     maxTokens: 2048,
     temperature: 0,
     tools: allTools,
-    template: ({ history, input }) => `
+    template: ({ history, input }) =>
+      `
 You are Codefixer, an expert AI terminal coding assistant. You help developers understand, build, debug, and refactor code directly in their terminal.
 
 ${history ? `# Conversation History\n${history}\n` : ""}

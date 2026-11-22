@@ -17,7 +17,6 @@ import {
   activateConfiguredModel,
   getActiveConfiguredModel,
   getActiveConfiguredModelName,
-  MODEL_ID,
   setModel,
   codeAgent,
 } from "../src/core/agent.js";
@@ -135,7 +134,10 @@ describe("Model Tests", () => {
 
     test("normalizes provider hostnames to /v1", () => {
       assert.equal(normalizeModelUrl("https://api.openai.com"), "https://api.openai.com/v1");
-      assert.equal(normalizeModelUrl("https://openrouter.ai/api/v1"), "https://openrouter.ai/api/v1");
+      assert.equal(
+        normalizeModelUrl("https://openrouter.ai/api/v1"),
+        "https://openrouter.ai/api/v1",
+      );
     });
 
     test("getProviderLabel detects provider from URL", () => {

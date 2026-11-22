@@ -185,7 +185,9 @@ export class HistoryManager {
     }
     async isGitRepo() {
         try {
-            const { stdout } = await execAsync("git rev-parse --is-inside-work-tree", { cwd: this.rootDir });
+            const { stdout } = await execAsync("git rev-parse --is-inside-work-tree", {
+                cwd: this.rootDir,
+            });
             return stdout.trim() === "true";
         }
         catch {

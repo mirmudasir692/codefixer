@@ -67,7 +67,9 @@ export function extractTextToolCalls(text: string): { name: string; args: string
   const re = /\{\s*"name"\s*:\s*"([^"]+)"\s*,\s*"arguments"\s*:\s*/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
-    let depth = 0, i = re.lastIndex, start = -1;
+    let depth = 0,
+      i = re.lastIndex,
+      start = -1;
     while (i < text.length) {
       const ch = text[i];
       if (ch === "{") {

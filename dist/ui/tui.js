@@ -429,8 +429,7 @@ export class Tui {
             }
             else if (ch === "\x7f" || ch === "\x08") {
                 if (this.cursor > 0) {
-                    this.input =
-                        this.input.slice(0, this.cursor - 1) + this.input.slice(this.cursor);
+                    this.input = this.input.slice(0, this.cursor - 1) + this.input.slice(this.cursor);
                     this.cursor--;
                     this.hideSuggestions = false;
                     this.selectedSuggestionIndex = 0;
@@ -454,8 +453,7 @@ export class Tui {
                 this.hint = "Commands: /messages /history /undo /revert file <path> /help";
             }
             else if (ch >= " ") {
-                this.input =
-                    this.input.slice(0, this.cursor) + ch + this.input.slice(this.cursor);
+                this.input = this.input.slice(0, this.cursor) + ch + this.input.slice(this.cursor);
                 this.cursor++;
                 this.hint = "";
                 this.hideSuggestions = false;
@@ -580,7 +578,7 @@ export class Tui {
             }
         }
         for (let y = 1; y <= rows; y++) {
-            let mainText = "";
+            let mainText;
             if (y === 1) {
                 const badge = paint(" CODEFIXER ", colors.white, colors.accentBg, BOLD);
                 const spinner = this.busy
@@ -614,8 +612,7 @@ export class Tui {
                     const innerW = boxW - 4;
                     const itemIdx = y - suggestionTop - 1;
                     const item = visibleSuggestions[itemIdx];
-                    const isSelected = itemIdx ===
-                        (this.selectedSuggestionIndex % visibleSuggestions.length);
+                    const isSelected = itemIdx === this.selectedSuggestionIndex % visibleSuggestions.length;
                     const prefix = isSelected ? paint(" ▸ ", colors.accent, BOLD) : "   ";
                     const label = isSelected
                         ? paint(item.label, colors.white, BOLD)
@@ -682,7 +679,7 @@ export class Tui {
                     ? paint(" ? ", colors.white, colors.orangeBg, BOLD)
                     : paint(" ❯ ", colors.white, colors.accentBg, BOLD);
                 const innerW = Math.max(1, boxW - 8);
-                let inputFormatted = "";
+                let inputFormatted;
                 if (isConfirm) {
                     const val = this.confirmText + (this.confirmInput ? " " + this.confirmInput : "");
                     inputFormatted = paint(val, colors.orange, BOLD);

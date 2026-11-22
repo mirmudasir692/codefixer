@@ -14,7 +14,10 @@ function filterCommands(input: string, commands: SlashCommand[] = SLASH_COMMANDS
   );
 }
 
-function parseActiveMention(input: string, cursor = input.length): { start: number; query: string } | null {
+function parseActiveMention(
+  input: string,
+  cursor = input.length,
+): { start: number; query: string } | null {
   const textBefore = input.slice(0, cursor);
   const atIndex = textBefore.lastIndexOf("@");
   if (atIndex === -1) return null;

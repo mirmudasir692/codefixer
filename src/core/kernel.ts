@@ -18,7 +18,7 @@ const MUTATING_TOOLS = new Set([
 export async function runTurn(userInput: string, history: string): Promise<TurnResult> {
   let workingHistory = history;
 
-  const fileMentions = [...userInput.matchAll(/@([a-zA-Z0-9_.\-\/]+)/g)]
+  const fileMentions = [...userInput.matchAll(/@([a-zA-Z0-9_.\-/]+)/g)]
     .map((m) => m[1])
     .filter((p) => {
       try {
@@ -35,11 +35,8 @@ export async function runTurn(userInput: string, history: string): Promise<TurnR
       try {
         const full = path.resolve(process.cwd(), filePath);
         const raw = readFileSync(full, "utf-8");
-        const preview =
-          raw.length > 4000 ? raw.slice(0, 4000) + "\n... [truncated]" : raw;
-        attachedSnippets.push(
-          `[Attached context for @${filePath}]:\n\`\`\`\n${preview}\n\`\`\``,
-        );
+        const preview = raw.length > 4000 ? raw.slice(0, 4000) + "\n... [truncated]" : raw;
+        attachedSnippets.push(`[Attached context for @${filePath}]:\n\`\`\`\n${preview}\n\`\`\``);
       } catch {}
     }
     if (attachedSnippets.length > 0) {
@@ -57,7 +54,10 @@ export async function runTurn(userInput: string, history: string): Promise<TurnR
   }
 
   const agent = codeAgent;
-  let response = (await agent({ history: workingHistory, input: userInput })) as unknown as AgentCallResponse;
+  let response = (await agent({
+    history: workingHistory,
+    input: userInput,
+  })) as unknown as AgentCallResponse;
   let rounds = 0;
   let finished = false;
   let finishSummary: string | undefined;
@@ -150,7 +150,9 @@ export async function runTurn(userInput: string, history: string): Promise<TurnR
       const callKey = `${call.name}:${JSON.stringify(args)}`;
 
       if (executedCalls.has(callKey)) {
-        results.push(`[${call.name}] STOP: this exact call already ran earlier in this turn and its result is above. Do not retry it. If it failed, change your approach (e.g., use write_file to create a missing file) or reply with a short summary.`);
+        results.push(
+          `[${call.name}] STOP: this exact call already ran earlier in this turn and its result is above. Do not retry it. If it failed, change your approach (e.g., use write_file to create a missing file) or reply with a short summary.`,
+        );
         continue;
       }
 
@@ -229,7 +231,10 @@ export async function runTurn(userInput: string, history: string): Promise<TurnR
         ? " You have not modified any files yet. The user asked for a change: call write_file (full content) or edit_file (targeted change) now with the real new content. Do not call read_file again — its content is already above."
         : " The user asked an informational question (no files to edit). Synthesize your findings from the tool results above and answer in plain English now. Do not call any tools.";
     const workingInput = `User request: "${userInput}".\nUse the tool results above to fulfill the user's request. If changes are needed, proceed with the appropriate edit tool. If you have completed the task or have the full answer, respond in plain English. Do not re-call any tool whose result is already displayed above.${nudge}`;
-    response = (await agent({ history: workingHistory, input: workingInput })) as unknown as AgentCallResponse;
+    response = (await agent({
+      history: workingHistory,
+      input: workingInput,
+    })) as unknown as AgentCallResponse;
   }
 
   const rawText = response.text() ?? "";
