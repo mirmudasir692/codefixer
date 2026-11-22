@@ -54,8 +54,10 @@ Codefixer inspects your repository, answers complex architectural questions, and
 You can install Codefixer directly from GitHub using npm:
 
 ```bash
-npm install -g github:mirmudasir692/codefixer
+npm install -g github:mirmudasir692/codefixer --allow-git=all
 ```
+
+> **Note**: Modern npm versions (v10+ / Node 22) disable git package fetching by default. The `--allow-git=all` flag allows npm to install from GitHub. You can also run `npm config set allow-git=all` once to enable it permanently.
 
 Now you can run Codefixer from **any project or directory**:
 
@@ -66,7 +68,7 @@ codefixer
 To update to the latest version anytime:
 
 ```bash
-npm install -g github:mirmudasir692/codefixer
+npm install -g github:mirmudasir692/codefixer --allow-git=all
 ```
 
 ---
@@ -76,7 +78,7 @@ npm install -g github:mirmudasir692/codefixer
 Run Codefixer directly in any folder without installing it permanently:
 
 ```bash
-npx github:mirmudasir692/codefixer
+npx --allow-git=all github:mirmudasir692/codefixer
 ```
 
 ---
