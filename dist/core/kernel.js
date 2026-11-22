@@ -203,7 +203,7 @@ export async function runTurn(userInput, history) {
             ? ` You already modified ${[...new Set(mutatedThisRound)].join(", ")} in this turn — do NOT edit the same file again. If the task is complete, reply with one short sentence summarizing it.`
             : wantsChange
                 ? " You have not modified any files yet. The user asked for a change: call write_file (full content) or edit_file (targeted change) now with the real new content. Do not call read_file again — its content is already above."
-                : " The user asked an informational question (no files to edit). Synthesize your findings from the tool results above and answer in plain English now. Do not call any tools.";
+                : " If you need to inspect key files (such as package.json, README.md, config files, or source files) to answer accurately and completely, call read_file now. If you already have enough information, synthesize your findings and explain clearly in plain English.";
         const workingInput = `User request: "${userInput}".\nUse the tool results above to fulfill the user's request. If changes are needed, proceed with the appropriate edit tool. If you have completed the task or have the full answer, respond in plain English. Do not re-call any tool whose result is already displayed above.${nudge}`;
         response = (await agent({
             history: workingHistory,
