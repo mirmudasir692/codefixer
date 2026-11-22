@@ -30,7 +30,6 @@ export function welcomeLines(version = "0.1.0"): string[] {
     "",
     ...logoLines(),
     "",
-    paint("  A terminal coding agent powered by Mirascope + Ollama", colors.text),
     paint(`  ${v}  ·  Ready to help build, fix, and explain code`, colors.dim),
     "",
     paint("  Commands:", colors.accent, BOLD),

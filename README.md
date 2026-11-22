@@ -1,10 +1,10 @@
 # codefixer
 
-A fast, terminal coding assistant powered by [Mirascope](https://mirascope.com) and local Ollama models.
+A fast, terminal coding assistant powered by [Mirascope](https://mirascope.com).
 
 ## Overview
 
-Codefixer is an autonomous CLI coding agent that inspects your repository, answers architectural questions, and executes surgical code edits. It runs directly in your terminal using a pluggable microkernel architecture.
+Codefixer is an autonomous CLI coding agent that inspects your repository, answers architectural questions, and executes surgical code edits. It runs directly in your terminal using a pluggable microkernel architecture. Users can configure any LLM provider (Ollama, OpenAI, OpenRouter, Groq, Anthropic, etc.) directly in the terminal using `/configure-model`.
 
 ## Terminal Interface
 
@@ -49,20 +49,18 @@ npm start
 npm run dev
 ```
 
-### Choosing a Model
+### Configuring a Model
 
-The default model is `hhao/qwen2.5-coder-tools:1.5b` (fast, but prone to stalling
-on multi-step edits). Select any model installed in Ollama with `CODEFIXER_MODEL`:
+Configure your model and LLM provider interactively in the REPL:
 
-```bash
-# Use a larger, more reliable model
-CODEFIXER_MODEL=ollama/qwen2.5-agent-7b:latest npm run dev
+```text
+> /configure-model
+Enter model URL (e.g. http://localhost:11434/v1 or https://api.openai.com/v1)
+Enter API key (leave blank for local models)
+Enter model name
 ```
 
-Models ≥7B are recommended for real editing tasks: they follow multi-step
-instructions, produce complete file contents, and call `finish` on their own.
-Small 1.5B models can loop on repeated reads or inject `read_file` line-number
-prefixes into files; Codefixer blocks those bad writes, but the turn may end
+Or select from configured models using `/models`. You can also specify an initial model with the `CODEFIXER_MODEL` environment variable.
 with no changes — rephrase the request or switch models if that happens.
 
 ---
@@ -82,12 +80,16 @@ Within the interactive REPL:
 
 | Command | Description |
 |---|---|
+| `/configure-model` | Add and configure a new model (prompts for URL, API key, and name) |
+| `/models` | List stored models and select an active model |
+| `/model [name]` | View active model or switch directly |
 | `/messages` | List your numbered messages with how many file changes each produced |
 | `/history` | View recent checkpoints with timestamps, descriptions, and changed files |
 | `/undo` | Revert the most recent change |
 | `/revert <n>` | Revert all changes made from message `n` onward |
 | `/revert <checkpoint_id>` | Rollback all modifications to a specific checkpoint ID |
 | `/revert file <path>` | Revert an individual file to its previous state |
+| `/clear` | Clear conversation screen |
 | `/help` | Display available commands |
 | `exit` or `quit` | Exit the REPL |
 
@@ -125,6 +127,7 @@ src/
 │   ├── agent.ts     # Mirascope LLM definition and system prompt
 │   ├── kernel.ts    # Execution kernel coordinating prompt turns & tool dispatch
 │   ├── history.ts   # Persistent History & Checkpoint Manager
+│   ├── models.ts    # Configured Models Storage & Provider Management
 │   ├── registry.ts  # Microkernel Tool Registry
 │   └── session.ts   # Session state tracking
 ├── tools/

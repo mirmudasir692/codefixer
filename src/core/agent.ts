@@ -1,10 +1,82 @@
 import { llm } from "mirascope";
 import { allTools } from "../tools/index.js";
+import type { ConfiguredModel } from "../types/index.js";
+import {
+  getProviderLabel,
+  getActiveModelName,
+  getConfiguredModel,
+  setActiveModelName,
+} from "./models.js";
+import { getActiveTui } from "../ui/tui.js";
+import { logger } from "../utils/logger.js";
 
-export let MODEL_ID =
-  process.env.CODEFIXER_MODEL ?? "ollama/hhao/qwen2.5-coder-tools:1.5b";
+export let MODEL_ID = process.env.CODEFIXER_MODEL ?? "";
+
+let activeConfiguredModel: ConfiguredModel | null = null;
+
+export function getActiveConfiguredModel(): ConfiguredModel | null {
+  return activeConfiguredModel;
+}
+
+export function getActiveConfiguredModelName(): string | null {
+  return activeConfiguredModel ? activeConfiguredModel.name : null;
+}
+
+export function setActiveConfiguredModel(model: ConfiguredModel | null): void {
+  activeConfiguredModel = model;
+}
+
+export function activateConfiguredModel(model: ConfiguredModel): string {
+  const provider = new llm.OpenAIProvider({
+    baseURL: model.url,
+    apiKey: model.apiKey || process.env.OPENAI_API_KEY || "dummy-key",
+  });
+  (
+    provider as unknown as {
+      completionsProvider: { requestModelName?: (name: string) => string };
+    }
+  ).completionsProvider.requestModelName = () => model.name;
+
+  const sanitized = model.name.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const scope = `custom-${sanitized}/`;
+  llm.registerProvider(provider, { scope });
+
+  const formatted = `${scope}${model.name}`;
+  MODEL_ID = formatted;
+  activeConfiguredModel = model;
+  codeAgent = createCodeAgent(formatted);
+
+  setActiveModelName(model.name).catch(() => {});
+
+  const tui = getActiveTui();
+  if (tui?.isActive) {
+    tui.setStatus({
+      model: model.name,
+      provider: getProviderLabel(model.url),
+    });
+  }
+
+  logger.info(`\n✓ Switched model to ${model.name} (${model.url})\n`);
+  return formatted;
+}
+
+export async function initActiveModel(): Promise<void> {
+  if (process.env.CODEFIXER_MODEL) return;
+  try {
+    const activeName = await getActiveModelName();
+    if (activeName) {
+      const model = await getConfiguredModel(activeName);
+      if (model) {
+        activateConfiguredModel(model);
+      }
+    }
+  } catch {}
+}
 
 export function createCodeAgent(model = MODEL_ID) {
+  if (!model) {
+    throw new Error("No model configured. Please run /configure-model or set CODEFIXER_MODEL.");
+  }
   return llm.defineCall<{
     history: string;
     input: string;
@@ -41,9 +113,10 @@ CRITICAL RULES:
   });
 }
 
-export let codeAgent = createCodeAgent();
+export let codeAgent = MODEL_ID ? createCodeAgent(MODEL_ID) : null;
 
 export function setModel(newModel: string): string {
+  activeConfiguredModel = null;
   const formatted = newModel.startsWith("ollama/") ? newModel : `ollama/${newModel}`;
   MODEL_ID = formatted;
   codeAgent = createCodeAgent(formatted);

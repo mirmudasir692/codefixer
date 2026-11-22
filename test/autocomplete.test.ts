@@ -32,17 +32,26 @@ describe("Slash Command Autocomplete", () => {
     assert.equal(matches.length, SLASH_COMMANDS.length);
     assert.ok(matches.some((c) => c.name === "/help"));
     assert.ok(matches.some((c) => c.name === "/model"));
+    assert.ok(matches.some((c) => c.name === "/models"));
+    assert.ok(matches.some((c) => c.name === "/configure-model"));
     assert.ok(matches.some((c) => c.name === "/history"));
     assert.ok(matches.some((c) => c.name === "/undo"));
     assert.ok(matches.some((c) => c.name === "/clear"));
   });
 
-  test("typing '/m' filters to /model and /messages", () => {
+  test("typing '/m' filters to /model, /models, and /messages", () => {
     const matches = filterCommands("/m");
     const names = matches.map((c) => c.name);
     assert.ok(names.includes("/model"));
+    assert.ok(names.includes("/models"));
     assert.ok(names.includes("/messages"));
     assert.ok(!names.includes("/help"));
+  });
+
+  test("typing '/con' filters to /configure-model", () => {
+    const matches = filterCommands("/con");
+    assert.equal(matches.length, 1);
+    assert.equal(matches[0].name, "/configure-model");
   });
 
   test("typing '/und' precisely filters to /undo", () => {

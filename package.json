@@ -1,7 +1,7 @@
 {
   "name": "codefixer",
   "version": "0.1.0",
-  "description": "A terminal coding agent powered by Mirascope and local Ollama models.",
+  "description": "A terminal coding agent powered by Mirascope.",
   "type": "module",
   "main": "./dist/index.js",
   "bin": {

@@ -47,7 +47,17 @@ export async function runTurn(userInput: string, history: string): Promise<TurnR
     }
   }
 
-  let response = (await codeAgent({ history: workingHistory, input: userInput })) as unknown as AgentCallResponse;
+  if (!codeAgent) {
+    return {
+      text: "⚠ No model configured. Please run /configure-model to add an LLM provider and model.",
+      transcriptLine: `User: ${userInput}\nAssistant: No model configured.`,
+      toolRounds: 0,
+      finished: true,
+    };
+  }
+
+  const agent = codeAgent;
+  let response = (await agent({ history: workingHistory, input: userInput })) as unknown as AgentCallResponse;
   let rounds = 0;
   let finished = false;
   let finishSummary: string | undefined;
@@ -219,7 +229,7 @@ export async function runTurn(userInput: string, history: string): Promise<TurnR
         ? " You have not modified any files yet. The user asked for a change: call write_file (full content) or edit_file (targeted change) now with the real new content. Do not call read_file again — its content is already above."
         : " The user asked an informational question (no files to edit). Synthesize your findings from the tool results above and answer in plain English now. Do not call any tools.";
     const workingInput = `User request: "${userInput}".\nUse the tool results above to fulfill the user's request. If changes are needed, proceed with the appropriate edit tool. If you have completed the task or have the full answer, respond in plain English. Do not re-call any tool whose result is already displayed above.${nudge}`;
-    response = (await codeAgent({ history: workingHistory, input: workingInput })) as unknown as AgentCallResponse;
+    response = (await agent({ history: workingHistory, input: workingInput })) as unknown as AgentCallResponse;
   }
 
   const rawText = response.text() ?? "";

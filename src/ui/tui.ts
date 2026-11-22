@@ -23,6 +23,8 @@ import type { TuiStatus, SlashCommand, FileSuggestion } from "../types/index.js"
 export const SLASH_COMMANDS: SlashCommand[] = [
   { name: "/help", description: "List all available interactive commands" },
   { name: "/model", description: "View or switch Ollama model" },
+  { name: "/models", description: "List and choose configured models" },
+  { name: "/configure-model", description: "Configure and store a new model" },
   { name: "/messages", description: "List conversation messages & change counts" },
   { name: "/history", description: "Show recent checkpoints & diff timeline" },
   { name: "/undo", description: "Revert the most recent file change" },

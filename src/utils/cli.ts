@@ -18,6 +18,17 @@ async function ask(question: string): Promise<string> {
   }
 }
 
+export async function promptInput(question: string, placeholder?: string): Promise<string> {
+  const tui = getActiveTui();
+  if (tui?.isActive) {
+    tui.print(question);
+    const res = await tui.prompt(placeholder ?? question);
+    return res.trim();
+  }
+  const res = await ask(question);
+  return res.trim();
+}
+
 export async function confirm(question: string): Promise<boolean> {
   const tui = getActiveTui();
   if (tui?.isActive) return tui.confirm(question);

@@ -1,3 +1,10 @@
+export interface ConfiguredModel {
+  name: string;
+  url: string;
+  apiKey?: string;
+  createdAt?: number;
+}
+
 export type TurnResult = {
   text: string;
   transcriptLine: string;
