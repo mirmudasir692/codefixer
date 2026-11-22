@@ -1,6 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { SLASH_COMMANDS, type SlashCommand } from "../src/ui/tui.js";
+import { getProjectFiles } from "../src/utils/path.js";
 
 function filterCommands(input: string, commands: SlashCommand[] = SLASH_COMMANDS): SlashCommand[] {
   if (!input.startsWith("/")) return [];
@@ -11,6 +12,18 @@ function filterCommands(input: string, commands: SlashCommand[] = SLASH_COMMANDS
       cmd.name.toLowerCase().startsWith(query) ||
       (query.length > 1 && cmd.name.toLowerCase().includes(query)),
   );
+}
+
+function parseActiveMention(input: string, cursor = input.length): { start: number; query: string } | null {
+  const textBefore = input.slice(0, cursor);
+  const atIndex = textBefore.lastIndexOf("@");
+  if (atIndex === -1) return null;
+  if (atIndex > 0 && !/[\s([{"',:=]/.test(textBefore[atIndex - 1])) {
+    return null;
+  }
+  const query = textBefore.slice(atIndex + 1);
+  if (/\s/.test(query)) return null;
+  return { start: atIndex, query };
 }
 
 describe("Slash Command Autocomplete", () => {
@@ -49,3 +62,45 @@ describe("Slash Command Autocomplete", () => {
   });
 });
 
+describe("@ File & Directory Mentions", () => {
+  test("getProjectFiles returns workspace files and folders", () => {
+    const files = getProjectFiles();
+    assert.ok(files.length > 0);
+    assert.ok(files.some((f) => f.path === "src/" && f.isDir));
+    assert.ok(files.some((f) => f.path === "package.json" && !f.isDir));
+    assert.ok(files.some((f) => f.path.includes("src/ui/tui.ts")));
+  });
+
+  test("detects active @ mention at start of input", () => {
+    const mention = parseActiveMention("@");
+    assert.deepEqual(mention, { start: 0, query: "" });
+  });
+
+  test("detects active @ mention inside sentence", () => {
+    const mention = parseActiveMention("please inspect @src/ui/t");
+    assert.deepEqual(mention, { start: 15, query: "src/ui/t" });
+  });
+
+  test("does not trigger on email addresses", () => {
+    const mention = parseActiveMention("contact user@email.com");
+    assert.equal(mention, null);
+  });
+
+  test("does not trigger when cursor has moved past a space", () => {
+    const mention = parseActiveMention("@src/ui/tui.ts and then some");
+    assert.equal(mention, null);
+  });
+
+  test("filters project files by query", () => {
+    const files = getProjectFiles();
+    const query = "tui";
+    const matches = files.filter(
+      (f) =>
+        f.path.toLowerCase().startsWith(query) ||
+        f.name.toLowerCase().startsWith(query) ||
+        f.path.toLowerCase().includes(query),
+    );
+    assert.ok(matches.length >= 1);
+    assert.ok(matches.some((f) => f.path.includes("src/ui/tui.ts")));
+  });
+});

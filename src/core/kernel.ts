@@ -1,3 +1,5 @@
+import path from "node:path";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { codeAgent } from "./agent.js";
 import { registry } from "./registry.js";
 import { safeParse, extractTextToolCalls, logger } from "../utils/index.js";
@@ -17,14 +19,45 @@ function mutationPath(args: any): string {
   return typeof args?.path === "string" ? args.path : "";
 }
 
-// Microkernel execution loop: coordinates prompt turns and tool plugin dispatch
 export async function runTurn(userInput: string, history: string): Promise<TurnResult> {
-  let response: any = await codeAgent({ history, input: userInput });
+  let workingHistory = history;
+
+  const fileMentions = [...userInput.matchAll(/@([a-zA-Z0-9_.\-\/]+)/g)]
+    .map((m) => m[1])
+    .filter((p) => {
+      try {
+        const full = path.resolve(process.cwd(), p);
+        return existsSync(full) && statSync(full).isFile();
+      } catch {
+        return false;
+      }
+    });
+
+  if (fileMentions.length > 0) {
+    const attachedSnippets: string[] = [];
+    for (const filePath of fileMentions) {
+      try {
+        const full = path.resolve(process.cwd(), filePath);
+        const raw = readFileSync(full, "utf-8");
+        const preview =
+          raw.length > 4000 ? raw.slice(0, 4000) + "\n... [truncated]" : raw;
+        attachedSnippets.push(
+          `[Attached context for @${filePath}]:\n\`\`\`\n${preview}\n\`\`\``,
+        );
+      } catch {
+        // Ignore unreadable files
+      }
+    }
+    if (attachedSnippets.length > 0) {
+      workingHistory += `\n${attachedSnippets.join("\n\n")}\n`;
+    }
+  }
+
+  let response: any = await codeAgent({ history: workingHistory, input: userInput });
   let rounds = 0;
   let finished = false;
   let finishSummary: string | undefined;
   let stopReason: "mutation-limit" | "round-limit" | "stalled" | null = null;
-  let workingHistory = history;
   let totalMutations = 0;
   let stalledRounds = 0;
   const executedCalls = new Set<string>();

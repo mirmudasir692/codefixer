@@ -17,6 +17,7 @@ import {
   wrapText,
 } from "./ansi.js";
 import { welcomeLines } from "./banner.js";
+import { getProjectFiles, type FileSuggestion } from "../utils/path.js";
 
 export interface TuiStatus {
   mode: string;
@@ -98,6 +99,79 @@ export class Tui {
         cmd.name.toLowerCase().startsWith(query) ||
         (query.length > 1 && cmd.name.toLowerCase().includes(query)),
     );
+  }
+
+  getActiveMention(): { start: number; query: string } | null {
+    if (this.hideSuggestions) return null;
+    const textBefore = this.input.slice(0, this.cursor);
+    const atIndex = textBefore.lastIndexOf("@");
+    if (atIndex === -1) return null;
+
+    if (atIndex > 0 && !/[\s([{"',:=]/.test(textBefore[atIndex - 1])) {
+      return null;
+    }
+
+    const query = textBefore.slice(atIndex + 1);
+    if (/\s/.test(query)) return null;
+
+    return { start: atIndex, query };
+  }
+
+  getMatchingFiles(): FileSuggestion[] {
+    const mention = this.getActiveMention();
+    if (!mention) return [];
+    const files = getProjectFiles();
+    const query = mention.query.toLowerCase();
+    if (!query) {
+      return files;
+    }
+
+    return files.filter(
+      (f) =>
+        f.path.toLowerCase().startsWith(query) ||
+        f.name.toLowerCase().startsWith(query) ||
+        f.path.toLowerCase().includes(query),
+    );
+  }
+
+  getActiveSuggestions(): {
+    type: "command" | "file";
+    title: string;
+    items: { label: string; detail: string; value: string; isDir?: boolean }[];
+  } | null {
+    if (this.hideSuggestions) return null;
+
+    const mention = this.getActiveMention();
+    if (mention) {
+      const files = this.getMatchingFiles();
+      if (files.length === 0) return null;
+      return {
+        type: "file",
+        title: " Files & Directories ",
+        items: files.map((f) => ({
+          label: f.isDir ? `📁 ${f.path}` : `📄 ${f.path}`,
+          detail: f.isDir ? "directory" : "file",
+          value: f.path,
+          isDir: f.isDir,
+        })),
+      };
+    }
+
+    if (this.input.startsWith("/")) {
+      const cmds = this.getMatchingCommands();
+      if (cmds.length === 0) return null;
+      return {
+        type: "command",
+        title: " Commands ",
+        items: cmds.map((c) => ({
+          label: c.name + (c.args ? ` ${c.args}` : ""),
+          detail: c.description,
+          value: c.name + (c.args ? " " : ""),
+        })),
+      };
+    }
+
+    return null;
   }
 
   /** Called when the user presses Ctrl+C / Ctrl+D on empty input. */
@@ -266,12 +340,13 @@ export class Tui {
   }
 
   private handleEscape(seq: string): void {
-    const matches = this.getMatchingCommands();
+    const suggestions = this.getActiveSuggestions();
     switch (seq) {
       case "\x1b[A": // Up arrow
-        if (matches.length > 0) {
+        if (suggestions && suggestions.items.length > 0) {
           this.selectedSuggestionIndex =
-            (this.selectedSuggestionIndex - 1 + matches.length) % matches.length;
+            (this.selectedSuggestionIndex - 1 + suggestions.items.length) %
+            suggestions.items.length;
           break;
         }
         if (this.commandHistory.length) {
@@ -281,9 +356,9 @@ export class Tui {
         }
         break;
       case "\x1b[B": // Down arrow
-        if (matches.length > 0) {
+        if (suggestions && suggestions.items.length > 0) {
           this.selectedSuggestionIndex =
-            (this.selectedSuggestionIndex + 1) % matches.length;
+            (this.selectedSuggestionIndex + 1) % suggestions.items.length;
           break;
         }
         this.historyIndex = Math.min(
@@ -337,7 +412,7 @@ export class Tui {
           continue;
         }
         // Bare Escape: close suggestions if open
-        if (this.getMatchingCommands().length > 0) {
+        if (this.getActiveSuggestions()) {
           this.hideSuggestions = true;
           this.scheduleRender();
           i++;
@@ -348,14 +423,30 @@ export class Tui {
       }
 
       if (ch === "\t") {
-        const matches = this.getMatchingCommands();
-        if (matches.length > 0) {
-          const chosen = matches[this.selectedSuggestionIndex % matches.length];
+        const suggestions = this.getActiveSuggestions();
+        if (suggestions && suggestions.items.length > 0) {
+          const chosen =
+            suggestions.items[this.selectedSuggestionIndex % suggestions.items.length];
           if (chosen) {
-            this.input = chosen.name + (chosen.args ? " " : "");
-            this.cursor = this.input.length;
-            this.hideSuggestions = false;
-            this.scheduleRender();
+            if (suggestions.type === "file") {
+              const mention = this.getActiveMention();
+              if (mention) {
+                const insert = `@${chosen.value}${chosen.isDir ? "" : " "}`;
+                const before = this.input.slice(0, mention.start);
+                const after = this.input.slice(this.cursor);
+                this.input = before + insert + after;
+                this.cursor = before.length + insert.length;
+                this.hideSuggestions = false;
+                this.selectedSuggestionIndex = 0;
+                this.scheduleRender();
+              }
+            } else {
+              this.input = chosen.value;
+              this.cursor = this.input.length;
+              this.hideSuggestions = false;
+              this.selectedSuggestionIndex = 0;
+              this.scheduleRender();
+            }
           }
         }
         i++;
@@ -363,22 +454,40 @@ export class Tui {
       }
 
       if (ch === "\r" || ch === "\n") {
-        const matches = this.getMatchingCommands();
-        if (matches.length > 0 && this.input.startsWith("/")) {
-          const chosen = matches[this.selectedSuggestionIndex % matches.length];
-          if (chosen && this.input.trim() !== chosen.name) {
-            if (!chosen.args) {
-              this.input = chosen.name;
-              this.cursor = this.input.length;
-              this.submitInput();
-              i++;
-              continue;
-            } else if (!this.input.includes(" ")) {
-              this.input = chosen.name + " ";
-              this.cursor = this.input.length;
-              this.scheduleRender();
-              i++;
-              continue;
+        const suggestions = this.getActiveSuggestions();
+        if (suggestions && suggestions.items.length > 0) {
+          const chosen =
+            suggestions.items[this.selectedSuggestionIndex % suggestions.items.length];
+          if (chosen) {
+            if (suggestions.type === "file") {
+              const mention = this.getActiveMention();
+              if (mention) {
+                const insert = `@${chosen.value}${chosen.isDir ? "" : " "}`;
+                const before = this.input.slice(0, mention.start);
+                const after = this.input.slice(this.cursor);
+                this.input = before + insert + after;
+                this.cursor = before.length + insert.length;
+                this.hideSuggestions = false;
+                this.selectedSuggestionIndex = 0;
+                this.scheduleRender();
+                i++;
+                continue;
+              }
+            } else if (this.input.startsWith("/") && this.input.trim() !== chosen.value.trim()) {
+              const cmd = SLASH_COMMANDS.find((c) => c.name === chosen.value.trim());
+              if (cmd && !cmd.args) {
+                this.input = cmd.name;
+                this.cursor = this.input.length;
+                this.submitInput();
+                i++;
+                continue;
+              } else if (!this.input.includes(" ")) {
+                this.input = chosen.value;
+                this.cursor = this.input.length;
+                this.scheduleRender();
+                i++;
+                continue;
+              }
             }
           }
         }
@@ -525,12 +634,11 @@ export class Tui {
     // Row rows - 1: Status bar
     // Row rows: Empty / border buffer
     const inputTop = Math.max(4, rows - 4);
-    const matches = this.getMatchingCommands();
-    const hasSuggestions = matches.length > 0;
-    const maxSuggestions = Math.min(5, Math.max(1, inputTop - 5));
-    const visibleSuggestions = hasSuggestions
-      ? matches.slice(0, maxSuggestions)
-      : [];
+    const suggestions = this.getActiveSuggestions();
+    const hasSuggestions = Boolean(suggestions && suggestions.items.length > 0);
+    const maxSuggestions = Math.min(6, Math.max(1, inputTop - 5));
+    const visibleSuggestions =
+      hasSuggestions && suggestions ? suggestions.items.slice(0, maxSuggestions) : [];
     const suggestionHeight =
       visibleSuggestions.length > 0 ? visibleSuggestions.length + 2 : 0;
     const suggestionTop = inputTop - suggestionHeight;
@@ -595,10 +703,10 @@ export class Tui {
         const space = Math.max(1, mainW - 1 - visualWidth(left) - visualWidth(right));
         mainText = left + " ".repeat(space) + right;
       } else if (suggestionHeight > 0 && y >= suggestionTop && y < inputTop) {
-        // --- Floating Command Suggestions Box ---
+        // --- Floating Suggestions Box (Files / Commands) ---
         const boxW = Math.max(20, mainW - 4);
+        const title = suggestions?.title ?? " Suggestions ";
         if (y === suggestionTop) {
-          const title = " Commands ";
           const dashes = Math.max(0, boxW - 2 - visualWidth(title) - 2);
           mainText =
             "  " +
@@ -615,27 +723,22 @@ export class Tui {
         } else {
           const innerW = boxW - 4;
           const itemIdx = y - suggestionTop - 1;
-          const cmd = visibleSuggestions[itemIdx];
+          const item = visibleSuggestions[itemIdx];
           const isSelected =
             itemIdx ===
             (this.selectedSuggestionIndex % visibleSuggestions.length);
 
           const prefix = isSelected ? paint(" ▸ ", colors.accent, BOLD) : "   ";
-          const name = isSelected
-            ? paint(cmd.name, colors.white, BOLD)
-            : paint(cmd.name, colors.accent);
-          const args = cmd.args
-            ? " " + paint(cmd.args, isSelected ? colors.cyan : colors.dim)
-            : "";
-          const nameLen = visualWidth(
-            cmd.name + (cmd.args ? " " + cmd.args : ""),
-          );
-          const padLen = Math.max(1, 22 - nameLen);
-          const desc = paint(
-            cmd.description,
+          const label = isSelected
+            ? paint(item.label, colors.white, BOLD)
+            : paint(item.label, colors.accent);
+          const labelLen = visualWidth(item.label);
+          const padLen = Math.max(1, 28 - labelLen);
+          const detail = paint(
+            item.detail,
             isSelected ? colors.text : colors.dim,
           );
-          const itemContent = prefix + name + args + " ".repeat(padLen) + desc;
+          const itemContent = prefix + label + " ".repeat(padLen) + detail;
 
           mainText =
             "  " +
