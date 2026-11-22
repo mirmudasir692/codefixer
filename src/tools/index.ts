@@ -10,7 +10,6 @@ import {
 } from "./fs.js";
 import { runShellTool } from "./shell.js";
 import { finishTool } from "./finish.js";
-import { revertFileTool } from "./revert.js";
 
 // Register all core tool plugins in the microkernel registry
 registry.register("list_directory", listDirectoryTool);
@@ -22,7 +21,6 @@ registry.register("insert_file", insertFileTool);
 registry.register("replace_lines", replaceLinesTool);
 registry.register("delete_file", deleteFileTool);
 registry.register("finish", finishTool);
-registry.register("revert_file", revertFileTool);
 
 export const toolsByName = registry.getMap();
 export const allTools = registry.getAll();
@@ -37,6 +35,5 @@ export {
   deleteFileTool,
   runShellTool,
   finishTool,
-  revertFileTool,
 };
 

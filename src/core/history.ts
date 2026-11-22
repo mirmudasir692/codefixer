@@ -15,6 +15,8 @@ export class HistoryManager {
   private blobsDir: string;
   private manifestPath: string;
   private initialized = false;
+  private currentMessageId: number | null = null;
+  private currentMessageText: string | null = null;
 
   constructor(rootDir: string = process.cwd()) {
     this.rootDir = rootDir;
@@ -50,6 +52,12 @@ export class HistoryManager {
   private async saveCheckpoints(checkpoints: Checkpoint[]): Promise<void> {
     await this.init();
     await writeFile(this.manifestPath, JSON.stringify(checkpoints, null, 2), "utf-8");
+  }
+
+  // Tags subsequently recorded checkpoints with a conversation message number
+  beginMessage(messageId: number, messageText?: string): void {
+    this.currentMessageId = messageId;
+    this.currentMessageText = messageText?.trim() || null;
   }
 
   // Snapshot a file before it gets modified or deleted
@@ -92,6 +100,8 @@ export class HistoryManager {
       id: checkpointId,
       timestamp: new Date().toISOString(),
       description,
+      ...(this.currentMessageId !== null ? { messageId: this.currentMessageId } : {}),
+      ...(this.currentMessageText !== null ? { messageText: this.currentMessageText } : {}),
       files: [snapshot],
     };
 
@@ -141,6 +151,41 @@ export class HistoryManager {
     const remaining = checkpoints.slice(0, targetIdx);
     await this.saveCheckpoints(remaining);
     return { ok: true, checkpointId, filesReverted: Array.from(filesRevertedSet) };
+  }
+
+  // Revert all file changes recorded from a specific message onward
+  async revertToMessage(messageId: number): Promise<RevertResult> {
+    const checkpoints = await this.getCheckpoints();
+    const targetIdx = checkpoints.findIndex(
+      (c) => c.messageId !== undefined && c.messageId >= messageId,
+    );
+
+    if (targetIdx === -1) {
+      return {
+        ok: false,
+        messageId,
+        filesReverted: [],
+        error: `No changes recorded for message ${messageId} or later.`,
+      };
+    }
+
+    const toRevert = checkpoints.slice(targetIdx).reverse();
+    const filesRevertedSet = new Set<string>();
+
+    for (const cp of toRevert) {
+      for (const snap of cp.files) {
+        await this.restoreSnapshot(snap);
+        filesRevertedSet.add(snap.path);
+      }
+    }
+
+    await this.saveCheckpoints(checkpoints.slice(0, targetIdx));
+    return {
+      ok: true,
+      checkpointId: checkpoints[targetIdx].id,
+      messageId,
+      filesReverted: Array.from(filesRevertedSet),
+    };
   }
 
   // Revert a single file to its previous state

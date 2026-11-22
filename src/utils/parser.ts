@@ -1,13 +1,72 @@
-// Parses JSON strings safely without throwing
+// Parses JSON strings safely without throwing, repairing common LLM mistakes
 export function safeParse(args: unknown): any {
-  if (typeof args === "string") {
+  if (typeof args !== "string") return args;
+  try {
+    return JSON.parse(args);
+  } catch {
+    // Models often emit JSON-ish arguments with Python-style triple-quoted
+    // values or raw newlines inside strings. Try to repair before giving up.
     try {
-      return JSON.parse(args);
+      return JSON.parse(repairLooseJson(args));
     } catch {
       return null;
     }
   }
-  return args;
+}
+
+// Repairs JSON-ish tool arguments emitted by models: converts Python-style
+// triple-quoted values to JSON strings and escapes raw control characters
+// that appear inside string literals.
+function repairLooseJson(raw: string): string {
+  const withQuotedValues = raw.replace(
+    /:\s*("""|''')([\s\S]*?)\1/g,
+    (_match, _quote: string, body: string) => `: ${JSON.stringify(body)}`,
+  );
+  return escapeControlCharsInsideStrings(withQuotedValues);
+}
+
+// Escapes raw newlines/tabs/carriage returns that appear inside JSON strings
+function escapeControlCharsInsideStrings(text: string): string {
+  let out = "";
+  let inString = false;
+  let escaped = false;
+
+  for (const ch of text) {
+    if (!inString) {
+      if (ch === '"') inString = true;
+      out += ch;
+      continue;
+    }
+    if (escaped) {
+      out += ch;
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\") {
+      out += ch;
+      escaped = true;
+      continue;
+    }
+    if (ch === '"') {
+      out += ch;
+      inString = false;
+      continue;
+    }
+    if (ch === "\n") {
+      out += "\\n";
+      continue;
+    }
+    if (ch === "\r") {
+      out += "\\r";
+      continue;
+    }
+    if (ch === "\t") {
+      out += "\\t";
+      continue;
+    }
+    out += ch;
+  }
+  return out;
 }
 
 // Extracts {"name":"...","arguments":{...}} from text with nested braces support
@@ -39,4 +98,3 @@ export function extractTextToolCalls(text: string): { name: string; args: string
   }
   return calls;
 }
-

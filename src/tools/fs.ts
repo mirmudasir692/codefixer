@@ -8,11 +8,30 @@ import {
   confirm,
   confirmDestructive,
   errorMessage,
+  logger,
 } from "../utils/index.js";
 import { markRead, markWritten, hasBeenRead } from "../core/session.js";
 import { historyManager } from "../core/history.js";
 
 const DEFAULT_READ_LIMIT = 2000;
+
+// Models sometimes copy read_file's "1\t..." display prefixes straight back
+// into a write. Detect that shape so numbered lines never land in a file.
+function looksNumbered(text: string): boolean {
+  const lines = text.split("\n").filter((line) => line.trim() !== "");
+  if (lines.length < 3) return false;
+  const numbered = lines.filter((line) => /^\d+\t/.test(line)).length;
+  return numbered / lines.length > 0.5;
+}
+
+function rejectNumberedContent(tool: string, text: string): string | null {
+  if (!looksNumbered(text)) return null;
+  return (
+    `Rejected ${tool}: the content still has line-number prefixes copied from ` +
+    `read_file (lines like "1\\t..."). Those numbers are display-only. ` +
+    `Re-send the real file content with the numbers removed.`
+  );
+}
 
 // List files and directories
 export const listDirectoryTool = llm.defineTool({
@@ -130,13 +149,24 @@ export const writeFileTool = llm.defineTool({
     }
 
     let exists = false;
+    let existingContent = "";
     let existingSize = 0;
     try {
-      const existing = await readFile(filePath, "utf-8");
+      existingContent = await readFile(filePath, "utf-8");
       exists = true;
-      existingSize = existing.length;
+      existingSize = existingContent.length;
     } catch {
       // New file
+    }
+
+    const numberedError = rejectNumberedContent("write_file", content);
+    if (numberedError) {
+      return {
+        ok: false,
+        path: filePath,
+        bytesWritten: null,
+        error: numberedError,
+      };
     }
 
     // Refuse overwriting an unread existing file
@@ -153,10 +183,23 @@ export const writeFileTool = llm.defineTool({
       };
     }
 
+    // No-op write: avoid pointless confirmation prompts and false "changed" reports
+    if (exists && existingContent === content) {
+      return {
+        ok: false,
+        path: filePath,
+        bytesWritten: null,
+        error:
+          `No changes: ${filePath} already contains this exact content. ` +
+          `Use edit_file, insert_file, or replace_lines to make a real change, ` +
+          `or reply with what should be added or modified.`,
+      };
+    }
+
     // Guard against accidental destructive truncation
     if (exists && existingSize > 200 && content.length < existingSize / 2) {
       const dropPct = Math.round((1 - content.length / existingSize) * 100);
-      console.log(
+      logger.info(
         `\n⚠⚠⚠  DESTRUCTIVE WRITE DETECTED\n` +
           `   ${filePath} is ${existingSize} chars on disk.\n` +
           `   You are about to replace it with ${content.length} chars (${dropPct}% smaller).\n` +
@@ -249,6 +292,29 @@ export const editFileTool = llm.defineTool({
         occurrences: null,
         bytesWritten: null,
         error: `Cannot read file: ${errorMessage(err)}. Use write_file if it does not exist yet.`,
+      };
+    }
+
+    if (old_string === "") {
+      return {
+        ok: false,
+        path: filePath,
+        occurrences: null,
+        bytesWritten: null,
+        error:
+          "old_string must not be empty. Use insert_file to add new lines, " +
+          "or pass the exact text you want to replace.",
+      };
+    }
+
+    const numberedError = rejectNumberedContent("edit_file", new_string);
+    if (numberedError) {
+      return {
+        ok: false,
+        path: filePath,
+        occurrences: null,
+        bytesWritten: null,
+        error: numberedError,
       };
     }
 
@@ -371,6 +437,19 @@ export const insertFileTool = llm.defineTool({
       };
     }
 
+    const numberedError = rejectNumberedContent("insert_file", content);
+    if (numberedError) {
+      return {
+        ok: false,
+        path: filePath,
+        insertedAtLine: null,
+        linesInserted: null,
+        newTotalLines: null,
+        bytesWritten: null,
+        error: numberedError,
+      };
+    }
+
     const newLines = content.split("\n");
     const updated = [
       ...lines.slice(0, after_line),
@@ -487,6 +566,19 @@ export const replaceLinesTool = llm.defineTool({
         newTotalLines: null,
         bytesWritten: null,
         error: `end_line=${end_line} is beyond the file's ${lines.length} lines.`,
+      };
+    }
+
+    const numberedError = rejectNumberedContent("replace_lines", new_content);
+    if (numberedError) {
+      return {
+        ok: false,
+        path: filePath,
+        replacedLines: null,
+        linesReplaced: null,
+        newTotalLines: null,
+        bytesWritten: null,
+        error: numberedError,
       };
     }
 

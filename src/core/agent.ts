@@ -1,7 +1,8 @@
 import { llm } from "mirascope";
 import { allTools } from "../tools/index.js";
 
-export const MODEL_ID = "ollama/hhao/qwen2.5-coder-tools:1.5b";
+export const MODEL_ID =
+  process.env.CODEFIXER_MODEL ?? "ollama/hhao/qwen2.5-coder-tools:1.5b";
 
 export const codeAgent = llm.defineCall<{
   history: string;
@@ -31,6 +32,7 @@ CRITICAL RULES:
   * replace_lines: to replace a known line range
   * write_file: only for brand new files or complete rewrites
 - Never overwrite a full file to make a small change.
+- When emitting a tool call, use strict JSON arguments: escape newlines as \\n and double quotes as \\" inside string values. Never use triple-quoted strings.
 - When code changes are complete and verified, call the finish tool with a summary.
 - Always explain findings or errors in clear English.
 - Keep intermediate reasoning short.

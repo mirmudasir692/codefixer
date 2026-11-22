@@ -130,4 +130,53 @@ describe("Persistent History Management", () => {
     assert.equal(res.filesReverted.length, 1);
     assert.equal(await readFile(testFile, "utf-8"), "initial content v1");
   });
+
+  test("revertToMessage reverts changes from that message onward", async () => {
+    manager.beginMessage(1);
+    await manager.snapshot(testFile, "msg1 edit");
+    await writeFile(testFile, "after msg1", "utf-8");
+
+    manager.beginMessage(2);
+    await manager.snapshot(testFile, "msg2 edit");
+    await writeFile(testFile, "after msg2", "utf-8");
+
+    const res = await manager.revertToMessage(2);
+    assert.equal(res.ok, true);
+    assert.equal(res.messageId, 2);
+    // Message 2's change is undone; message 1's change is kept
+    assert.equal(await readFile(testFile, "utf-8"), "after msg1");
+
+    const remaining = await manager.getCheckpoints();
+    assert.equal(remaining.length, 1);
+    assert.equal(remaining[0].messageId, 1);
+  });
+
+  test("revertToMessage(1) reverts every message", async () => {
+    manager.beginMessage(1);
+    await manager.snapshot(testFile, "msg1 edit");
+    await writeFile(testFile, "v2", "utf-8");
+
+    manager.beginMessage(2);
+    await manager.snapshot(testFile, "msg2 edit");
+    await writeFile(testFile, "v3", "utf-8");
+
+    const res = await manager.revertToMessage(1);
+    assert.equal(res.ok, true);
+    assert.equal(await readFile(testFile, "utf-8"), "initial content v1");
+    assert.equal((await manager.getCheckpoints()).length, 0);
+  });
+
+  test("revertToMessage returns error when no changes match", async () => {
+    manager.beginMessage(1);
+    await manager.snapshot(testFile, "msg1 edit");
+    await writeFile(testFile, "v2", "utf-8");
+
+    const res = await manager.revertToMessage(2);
+    assert.equal(res.ok, false);
+    assert.match(res.error ?? "", /no changes/i);
+
+    // Nothing reverted
+    assert.equal((await manager.getCheckpoints()).length, 1);
+    assert.equal(await readFile(testFile, "utf-8"), "v2");
+  });
 });
