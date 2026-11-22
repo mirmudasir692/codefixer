@@ -1,150 +1,308 @@
-# codefixer
+# Codefixer
 
-A fast, terminal coding assistant powered by [Mirascope](https://mirascope.com).
+A fast, autonomous terminal coding assistant powered by [Mirascope](https://mirascope.com).
 
-## Overview
+Codefixer inspects your repository, answers complex architectural questions, and executes surgical code modifications directly in your terminal. It features a pluggable microkernel architecture, zero-risk persistent file checkpoints, and full support for any OpenAI-compatible LLM provider (Ollama, OpenAI, Groq, OpenRouter, Together, DeepSeek, and more).
 
-Codefixer is an autonomous CLI coding agent that inspects your repository, answers architectural questions, and executes surgical code edits. It runs directly in your terminal using a pluggable microkernel architecture. Users can configure any LLM provider (Ollama, OpenAI, OpenRouter, Groq, Anthropic, etc.) directly in the terminal using `/configure-model`.
+---
 
-## Terminal Interface
+## Table of Contents
 
-When run in a real terminal, Codefixer opens a full-screen TUI (no extra
-dependencies) with a progress header, a scrolling conversation pane, a framed
-input box, a status bar showing the model/provider and current directory &
-branch, and a session sidebar on wide terminals.
+- [Features](#features)
+- [Prerequisites](#prerequisites)
+- [Installation & Setup](#installation--setup)
+- [Configuring LLM Providers & Models](#configuring-llm-providers--models)
+  - [Adding a Model (`/configure-model`)](#adding-a-model-configure-model)
+  - [Choosing an Active Model (`/models`)](#choosing-an-active-model-models)
+  - [Common Provider Examples](#common-provider-examples)
+- [Terminal Interface (TUI)](#terminal-interface-tui)
+  - [Keyboard Shortcuts](#keyboard-shortcuts)
+  - [Slash Command Autocomplete](#slash-command-autocomplete)
+  - [`@` File & Directory Mentions](#-file--directory-mentions)
+- [CLI Commands Reference](#cli-commands-reference)
+- [Persistent History Management](#persistent-history-management)
+  - [How It Works](#how-it-works)
+  - [Rollback Examples](#rollback-examples)
+- [Architecture & Tools](#architecture--tools)
+- [Development & Testing](#development--testing)
 
-| Key | Action |
-|---|---|
-| `Enter` | Send the current message |
-| `↑` / `↓` | Browse previous messages |
-| `←` / `→` | Move the cursor in the input |
-| `Ctrl+C` / `Ctrl+D` | Clear the input, or exit when it is empty |
-| `Ctrl+P` | Show available slash commands |
-| `Shift+Tab` | Show available agents |
+---
 
-If stdin/stdout are not a TTY (for example in CI or when piping input),
-Codefixer falls back to a plain `readline` prompt with the same commands.
+## Features
 
-## Getting Started
+- **Provider Agnostic**: Use any local LLM (via Ollama, LM Studio, vLLM) or cloud API (OpenAI, Groq, OpenRouter, DeepSeek). Configure endpoints and credentials directly from the CLI.
+- **Zero-Dependency Terminal UI (TUI)**: Full-screen interactive terminal interface featuring real-time spinner feedback, formatted conversational history, status bar, and collapsible sidebar.
+- **`@` Path Mentions**: Type `@` to autocomplete project files and directories, automatically attaching targeted file content as context.
+- **Zero-Risk File Mutations**: Built-in snapshotting before any file creation, edit, or deletion. Roll back individual files, recent changes, or entire conversation turns anytime with `/undo` and `/revert`.
+- **Microkernel Architecture**: Pluggable tool registry with safe filesystem tools (`read_file`, `write_file`, `edit_file`, `insert_file`, `replace_lines`, `delete_file`), sandboxed shell execution (`run_shell`), and task completion (`finish`).
 
-### Prerequisites
-- Node.js >= 22
-- [Ollama](https://ollama.com) running locally with your desired coding model:
-  ```bash
-  ollama pull hhao/qwen2.5-coder-tools:1.5b
-  ```
+---
 
-### Installation & Run
+## Prerequisites
 
+- **Node.js**: Version `>= 22.0.0`
+- **An LLM Provider** of your choice:
+  - **Local (Ollama)**: Running locally on `http://localhost:11434`
+  - **Cloud API**: OpenAI, Groq, OpenRouter, Anthropic, Together, etc.
+
+---
+
+## Installation & Setup
+
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/mirmudasir692/codefixer.git
+   cd codefixer
+   ```
+
+2. **Install dependencies**:
+   ```bash
+   npm install
+   ```
+
+3. **Build TypeScript**:
+   ```bash
+   npm run build
+   ```
+
+4. **Start Codefixer**:
+   ```bash
+   npm start
+   # or in development mode:
+   npm run dev
+   ```
+
+To install Codefixer globally on your machine:
 ```bash
-# Install dependencies
-npm install
-
-# Build TypeScript
-npm run build
-
-# Start interactive CLI
-npm start
-# or during development:
-npm run dev
+npm install -g .
+# then run anywhere:
+codefixer
 ```
 
-### Configuring a Model
+---
 
-Configure your model and LLM provider interactively in the REPL:
+## Configuring LLM Providers & Models
+
+Codefixer is decoupled from any hardcoded model. You can configure multiple models and switch between them anytime.
+
+### Adding a Model (`/configure-model`)
+
+Run `/configure-model` inside the REPL. You will be prompted for:
+
+1. **Model URL**: The API base URL (e.g. `http://localhost:11434/v1` or `https://api.openai.com/v1`). If `/v1` is omitted, Codefixer normalizes it automatically.
+2. **API Key**: Your API key (leave blank for local Ollama models).
+3. **Model Name**: The model identifier (e.g. `qwen2.5-coder:7b`, `gpt-4o`, `llama3.3:70b`).
 
 ```text
 > /configure-model
-Enter model URL (e.g. http://localhost:11434/v1 or https://api.openai.com/v1)
-Enter API key (leave blank for local models)
-Enter model name
+
+--- Configure Model ---
+Model URL (e.g. http://localhost:11434/v1 or https://api.openai.com/v1): http://localhost:11434/v1
+API Key (leave blank if not required): 
+Model Name (e.g. qwen2.5:7b, gpt-4o): qwen2.5-coder:7b
+
+✓ Model "qwen2.5-coder:7b" configured and saved successfully!
+Choose it anytime using /models or /models qwen2.5-coder:7b
 ```
 
-Or select from configured models using `/models`. You can also specify an initial model with the `CODEFIXER_MODEL` environment variable.
-with no changes — rephrase the request or switch models if that happens.
+Models are saved persistently in `~/.codefixer/models.json` (or the path set by `CODEFIXER_MODELS_PATH`).
+
+### Choosing an Active Model (`/models`)
+
+Run `/models` to view all saved models:
+
+```text
+> /models
+
+Configured Models:
+  1. qwen2.5-coder:7b (http://localhost:11434/v1) [active]
+  2. gpt-4o (https://api.openai.com/v1)
+  3. deepseek-coder (https://api.deepseek.com/v1)
+
+Select a model (1-3 or name, or press Enter to cancel): 2
+
+✓ Switched model to gpt-4o (https://api.openai.com/v1)
+```
+
+You can also switch directly by number or name:
+```text
+> /models 1
+> /models gpt-4o
+```
+
+### Common Provider Examples
+
+| Provider | Endpoint URL | API Key | Model Name Example |
+|---|---|---|---|
+| **Ollama (Local)** | `http://localhost:11434/v1` | *(blank)* | `qwen2.5-coder:7b`, `llama3.2:3b` |
+| **OpenAI** | `https://api.openai.com/v1` | `sk-...` | `gpt-4o`, `gpt-4o-mini` |
+| **Groq** | `https://api.groq.com/openai/v1` | `gsk_...` | `llama-3.3-70b-versatile` |
+| **OpenRouter** | `https://openrouter.ai/api/v1` | `sk-or-...` | `anthropic/claude-3.5-sonnet` |
+| **DeepSeek** | `https://api.deepseek.com/v1` | `sk-...` | `deepseek-chat`, `deepseek-coder` |
+
+> **Environment Variable Override**: You can also launch Codefixer with a specific model directly via `CODEFIXER_MODEL=ollama/qwen2.5:7b npm start`.
+
+---
+
+## Terminal Interface (TUI)
+
+When executed in a standard terminal (TTY), Codefixer launches a full-screen interactive interface with zero external GUI or heavy TUI dependencies.
+
+```text
+╭─────────────────────────────────────────────────────────────────────────────╮
+│ CODEFIXER ● Ready                                      Ctrl+C exit · /help │
+│                                                                             │
+│ ❯ Explain the authentication flow in src/auth.ts                            │
+│ ⚡ read_file(path: "src/auth.ts")                                           │
+│ The authentication system utilizes JWT bearer tokens verified against...     │
+│                                                                             │
+│ ╭─────────────────────────────────────────────────────────────────────────╮ │
+│ │ ❯ Ask Codefixer anything…                                               │ │
+│ ╰─────────────────────────────────────────────────────────────────────────╯ │
+│   Build  ● Ollama · qwen2.5-coder:7b  📁 ~/my-project  ⎇ main  ↑/↓ history  │
+╰─────────────────────────────────────────────────────────────────────────────╯
+```
+
+### Keyboard Shortcuts
+
+| Key | Description |
+|---|---|
+| <kbd>Enter</kbd> | Send input or confirm selected autocomplete item |
+| <kbd>↑</kbd> / <kbd>↓</kbd> | Navigate command history or autocomplete suggestions |
+| <kbd>←</kbd> / <kbd>→</kbd> | Move input cursor left/right |
+| <kbd>Tab</kbd> | Accept top suggestion or autocomplete command / file mention |
+| <kbd>Esc</kbd> | Close suggestion box |
+| <kbd>PageUp</kbd> / <kbd>PageDown</kbd> | Scroll conversation transcript history up/down |
+| <kbd>Ctrl+C</kbd> | Clear current line; exit if input is empty |
+| <kbd>Ctrl+U</kbd> | Clear input line |
+| <kbd>Ctrl+A</kbd> / <kbd>Ctrl+E</kbd> | Move cursor to beginning / end of line |
+
+*(Non-TTY environments, such as CI pipelines or redirected inputs, automatically fall back to a standard readline prompt).*
+
+### Slash Command Autocomplete
+
+Type `/` to instantly display an interactive command palette. As you type (e.g. `/m` or `/con`), suggestions narrow down. Press <kbd>Tab</kbd> or <kbd>Enter</kbd> to autocomplete.
+
+### `@` File & Directory Mentions
+
+Type `@` followed by any path characters (e.g. `@src/core/`) to trigger the file picker. Selecting a file injects an attached context preview into the conversation turn so the agent has immediate access to that file's contents.
+
+---
+
+## CLI Commands Reference
+
+| Command | Usage | Description |
+|---|---|---|
+| `/configure-model` | `/configure-model` | Interactively configure URL, API key, and name for an LLM provider |
+| `/models` | `/models [name\|index]` | List saved models and select active model |
+| `/model` | `/model [name]` | View active model or switch directly |
+| `/messages` | `/messages` | View numbered conversation messages with file change counters |
+| `/history` | `/history` | View recent file modification checkpoints with hashes & timestamps |
+| `/undo` | `/undo` | Immediately revert the most recent file change |
+| `/revert <n>` | `/revert 2` | Revert all file changes made from message `n` onward |
+| `/revert <id>` | `/revert cp_173169...` | Roll back repository state to a specific checkpoint ID |
+| `/revert file` | `/revert file <path>` | Restore a specific file to its previous state |
+| `/clear` | `/clear` | Clear the current conversation transcript |
+| `/help` | `/help` | Print all available interactive commands |
+| `exit` / `quit` | `exit` | Exit Codefixer |
 
 ---
 
 ## Persistent History Management
 
-Codefixer includes built-in, zero-risk change tracking with **Persistent History Management**. Every time the agent creates, modifies, or deletes a file, a pre-mutation snapshot is automatically captured in `.codefixer/history/`.
+Codefixer includes **Persistent History Management** to ensure zero-risk code modifications. Every time the agent creates, edits, or deletes a file, a pre-mutation snapshot is captured in `.codefixer/history/blobs/` and recorded in `checkpoints.json`.
 
-### Key Features
-- **Automatic Checkpointing**: File contents are snapshotted and deduplicated via content hashing before any write or delete occurs.
-- **Instant Rollback**: Revert single changes, restore deleted files, or undo entire turns at any time.
-- **Git Friendly**: Works standalone or alongside Git without creating dirty worktree clutter. `.codefixer/` is ignored by default.
+### How It Works
 
-### CLI Commands
+- **Pre-Mutation Snapshots**: Before executing any file write, line replace, or deletion, the existing state is snapshotted using SHA-256 content hashing.
+- **Git Friendly**: Works cleanly alongside Git or in non-git directories. `.codefixer/` is ignored by default.
+- **Deterministic User Revert**: Revert actions are strictly user commands (`/undo`, `/revert`) handled directly by the REPL runtime—the LLM is never prompted to revert its own changes.
 
-Within the interactive REPL:
-
-| Command | Description |
-|---|---|
-| `/configure-model` | Add and configure a new model (prompts for URL, API key, and name) |
-| `/models` | List stored models and select an active model |
-| `/model [name]` | View active model or switch directly |
-| `/messages` | List your numbered messages with how many file changes each produced |
-| `/history` | View recent checkpoints with timestamps, descriptions, and changed files |
-| `/undo` | Revert the most recent change |
-| `/revert <n>` | Revert all changes made from message `n` onward |
-| `/revert <checkpoint_id>` | Rollback all modifications to a specific checkpoint ID |
-| `/revert file <path>` | Revert an individual file to its previous state |
-| `/clear` | Clear conversation screen |
-| `/help` | Display available commands |
-| `exit` or `quit` | Exit the REPL |
-
-### Example Usage
+### Rollback Examples
 
 ```text
-> Add an exported slugify helper to src/utils/format.ts
-→ read_file(path: "src/utils/format.ts")
-→ edit_file(path: "src/utils/format.ts")
-Added slugify helper to src/utils/format.ts.
+# 1. Ask the agent to modify code
+> Refactor logger format in src/utils/logger.ts
+⚡ edit_file(path: "src/utils/logger.ts")
+✓ Done — changed src/utils/logger.ts (1 change).
 
-> /messages
-Messages:
-  1. Add an exported slugify helper to src/utils/format.ts  (1 change)
-
+# 2. Inspect checkpoints
 > /history
 Recent Checkpoints:
-   • [cp_1731693800_a1b2c3] 11:23:20 PM - edit_file: src/utils/format.ts (~ src/utils/format.ts)
+  • [cp_1732304910_a1b2c3] 10:15:10 PM - edit_file: src/utils/logger.ts (~ src/utils/logger.ts)
 
+# 3. Undo the change
+> /undo
+✓ Reverted change [cp_1732304910_a1b2c3]: src/utils/logger.ts
+
+# 4. Or revert to a specific message number
 > /revert 1
-✓ Reverted all changes from message 1 onward: src/utils/format.ts
+✓ Reverted all changes from message 1 onward: src/utils/logger.ts
 ```
-
-> Revert is intentionally **not** an agent tool. Like other coding agents, history actions are deterministic user commands (`/undo`, `/revert`) executed directly by the REPL — the model is never asked to revert on its own.
 
 ---
 
-## Architecture
+## Architecture & Tools
 
-Codefixer is built using a **Microkernel Architecture**:
+Codefixer is organized around a clean **Microkernel Architecture**:
 
 ```
 src/
 ├── core/
-│   ├── agent.ts     # Mirascope LLM definition and system prompt
-│   ├── kernel.ts    # Execution kernel coordinating prompt turns & tool dispatch
-│   ├── history.ts   # Persistent History & Checkpoint Manager
-│   ├── models.ts    # Configured Models Storage & Provider Management
-│   ├── registry.ts  # Microkernel Tool Registry
-│   └── session.ts   # Session state tracking
+│   ├── agent.ts       # Mirascope LLM call definition, provider registration & agent setup
+│   ├── kernel.ts      # Turn execution engine, intent routing & tool execution loop
+│   ├── models.ts      # Model configuration store, URL normalization & provider detection
+│   ├── history.ts     # Persistent history snapshot & checkpoint manager
+│   ├── registry.ts    # Extensible tool registry
+│   └── session.ts     # File read/write session cache
 ├── tools/
-│   ├── fs.ts        # File tools (read, write, edit, insert, replace, delete)
-│   ├── shell.ts     # Shell execution tool
-│   ├── finish.ts    # Task completion tool
-│   └── index.ts     # Tool plugin registration & exports
-├── types/           # Strongly typed domain & contract definitions
-├── utils/           # Shared utilities (path safety, formatting, parsers, logger)
-├── repl.ts          # Terminal REPL interface
-└── index.ts         # Executable entry point
+│   ├── fs.ts          # Filesystem tools (list_directory, read_file, write_file, edit_file, etc.)
+│   ├── shell.ts       # Shell tool (run_shell)
+│   ├── finish.ts      # Turn termination tool (finish)
+│   └── index.ts       # Tool definitions & exports
+├── types/             # Domain interfaces (models, history, tools, TUI)
+├── ui/
+│   ├── tui.ts         # Full-screen terminal rendering engine
+│   ├── ansi.ts        # ANSI formatting & screen layout primitives
+│   └── banner.ts      # ASCII logo and welcome screen
+├── utils/             # Path normalization, JSON repair, logging & CLI helpers
+├── repl.ts            # REPL event loops (TUI and plain fallback)
+└── index.ts           # CLI binary entry point
 ```
 
-## Running Tests
+### Registered Tools
 
-Unit tests run using Node's native test runner via `tsx`:
+The agent has access to the following deterministic tools:
+
+1. `list_directory`: Recursively inspects project trees.
+2. `read_file`: Reads file content with line numbers.
+3. `edit_file`: Performs targeted search-and-replace edits.
+4. `write_file`: Writes complete file contents or creates new files.
+5. `insert_file`: Inserts content at specific line numbers.
+6. `replace_lines`: Replaces ranges of line numbers.
+7. `delete_file`: Deletes files with automatic checkpointing.
+8. `run_shell`: Executes test runs, linting, and shell commands.
+9. `finish`: Concludes multi-step tool turns with a concise summary.
+
+---
+
+## Development & Testing
+
+Run unit tests via Node's native test runner with `tsx`:
 
 ```bash
+# Run all tests
 npm test
+
+# Run tests in watch mode
+npx tsx --test --watch test/**/*.test.ts
+
+# Type-check and compile
+npm run build
 ```
+
+---
+
+## License
+
+ISC License. See package configuration for details.
