@@ -1,0 +1,754 @@
+import { ALT_SCREEN_OFF, ALT_SCREEN_ON, BOLD, CLEAR_SCREEN, CLEAR_TO_EOL, HIDE_CURSOR, HOME, NO_REVERSE, RESET, REVERSE, SHOW_CURSOR, colors, fit, paint, visualWidth, wrapText, } from "./ansi.js";
+import { welcomeLines } from "./banner.js";
+import { getProjectFiles } from "../utils/path.js";
+export const SLASH_COMMANDS = [
+    { name: "/help", description: "List all available interactive commands" },
+    { name: "/model", description: "View or switch Ollama model" },
+    { name: "/models", description: "List and choose configured models" },
+    { name: "/configure-model", description: "Configure and store a new model" },
+    { name: "/messages", description: "List conversation messages & change counts" },
+    { name: "/history", description: "Show recent checkpoints & diff timeline" },
+    { name: "/undo", description: "Revert the most recent file change" },
+    { name: "/revert", description: "Revert files to earlier checkpoint" },
+    { name: "/clear", description: "Clear current conversation screen" },
+    { name: "/exit", description: "Exit Codefixer" },
+];
+const MAX_TRANSCRIPT_LINES = 1000;
+const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+export class Tui {
+    active = false;
+    transcript = [];
+    welcome = [];
+    version = "";
+    placeholder = "Type a message…";
+    input = "";
+    cursor = 0;
+    awaitingInput = false;
+    pendingInput = null;
+    pendingConfirm = null;
+    confirmText = "";
+    confirmInput = "";
+    commandHistory = [];
+    historyIndex = 0;
+    scrollOffset = 0;
+    status = {
+        mode: "Build",
+        model: "",
+        provider: "",
+        cwd: "",
+        branch: "",
+    };
+    sessions = ["codefixer", "bash"];
+    busy = false;
+    spinnerIndex = 0;
+    spinnerTimer = null;
+    renderScheduled = false;
+    hint = "";
+    hideSuggestions = false;
+    selectedSuggestionIndex = 0;
+    getMatchingCommands() {
+        if (!this.input.startsWith("/") || this.hideSuggestions)
+            return [];
+        const spaceIndex = this.input.indexOf(" ");
+        if (spaceIndex !== -1 && this.cursor > spaceIndex)
+            return [];
+        const query = this.input
+            .slice(0, spaceIndex === -1 ? this.input.length : spaceIndex)
+            .toLowerCase();
+        return SLASH_COMMANDS.filter((cmd) => cmd.name.toLowerCase().startsWith(query) ||
+            (query.length > 1 && cmd.name.toLowerCase().includes(query)));
+    }
+    getActiveMention() {
+        if (this.hideSuggestions)
+            return null;
+        const textBefore = this.input.slice(0, this.cursor);
+        const atIndex = textBefore.lastIndexOf("@");
+        if (atIndex === -1)
+            return null;
+        if (atIndex > 0 && !/[\s([{"',:=]/.test(textBefore[atIndex - 1])) {
+            return null;
+        }
+        const query = textBefore.slice(atIndex + 1);
+        if (/\s/.test(query))
+            return null;
+        return { start: atIndex, query };
+    }
+    getMatchingFiles() {
+        const mention = this.getActiveMention();
+        if (!mention)
+            return [];
+        const files = getProjectFiles();
+        const query = mention.query.toLowerCase();
+        if (!query) {
+            return files;
+        }
+        return files.filter((f) => f.path.toLowerCase().startsWith(query) ||
+            f.name.toLowerCase().startsWith(query) ||
+            f.path.toLowerCase().includes(query));
+    }
+    getActiveSuggestions() {
+        if (this.hideSuggestions)
+            return null;
+        const mention = this.getActiveMention();
+        if (mention) {
+            const files = this.getMatchingFiles();
+            if (files.length === 0)
+                return null;
+            return {
+                type: "file",
+                title: " Files & Directories ",
+                items: files.map((f) => ({
+                    label: f.isDir ? `📁 ${f.path}` : `📄 ${f.path}`,
+                    detail: f.isDir ? "directory" : "file",
+                    value: f.path,
+                    isDir: f.isDir,
+                })),
+            };
+        }
+        if (this.input.startsWith("/")) {
+            const cmds = this.getMatchingCommands();
+            if (cmds.length === 0)
+                return null;
+            return {
+                type: "command",
+                title: " Commands ",
+                items: cmds.map((c) => ({
+                    label: c.name,
+                    detail: c.description,
+                    value: c.name,
+                })),
+            };
+        }
+        return null;
+    }
+    onExit = null;
+    get isActive() {
+        return this.active;
+    }
+    start(status = {}, version = "") {
+        if (this.active)
+            return;
+        this.active = true;
+        this.status = { ...this.status, ...status };
+        this.version = version;
+        this.welcome = welcomeLines(version);
+        process.stdout.write(ALT_SCREEN_ON + HIDE_CURSOR);
+        this.paintScreen();
+        if (process.stdin.isTTY)
+            process.stdin.setRawMode(true);
+        process.stdin.resume();
+        process.stdin.on("data", this.onData);
+        process.stdout.on("resize", this.onResize);
+        this.render();
+    }
+    destroy() {
+        if (!this.active)
+            return;
+        this.active = false;
+        if (this.spinnerTimer)
+            clearInterval(this.spinnerTimer);
+        this.spinnerTimer = null;
+        process.stdin.off("data", this.onData);
+        process.stdout.off("resize", this.onResize);
+        if (process.stdin.isTTY)
+            process.stdin.setRawMode(false);
+        process.stdin.pause();
+        process.stdout.write(SHOW_CURSOR + ALT_SCREEN_OFF + RESET);
+        this.pendingInput?.("");
+        this.pendingConfirm?.(false);
+        this.pendingInput = null;
+        this.pendingConfirm = null;
+    }
+    print(text) {
+        if (!this.active)
+            return;
+        const cols = Math.max(48, process.stdout.columns || 100);
+        const sidebarW = cols >= 96 ? 26 : 0;
+        const mainW = cols - sidebarW;
+        const maxWrapW = Math.max(30, mainW - 6);
+        for (const rawLine of text.replace(/\r\n/g, "\n").split("\n")) {
+            const formatted = this.formatLine(rawLine);
+            const wrapped = wrapText(formatted, maxWrapW);
+            for (const wLine of wrapped) {
+                this.transcript.push(wLine);
+            }
+        }
+        if (this.transcript.length > MAX_TRANSCRIPT_LINES) {
+            this.transcript = this.transcript.slice(-MAX_TRANSCRIPT_LINES);
+        }
+        this.scrollOffset = 0;
+        this.scheduleRender();
+    }
+    formatLine(raw) {
+        if (!raw)
+            return "";
+        if (raw.includes("\x1b["))
+            return raw;
+        if (raw.startsWith("# "))
+            return paint(raw, colors.white, BOLD);
+        if (raw.startsWith("## "))
+            return paint(raw, colors.accent, BOLD);
+        if (raw.startsWith("### "))
+            return paint(raw, colors.cyan, BOLD);
+        if (raw.startsWith("✓ "))
+            return paint(raw, colors.green, BOLD);
+        if (raw.startsWith("✗ "))
+            return paint(raw, colors.red, BOLD);
+        if (raw.startsWith("⚠ "))
+            return paint(raw, colors.orange, BOLD);
+        if (/^\s*[-*•]\s/.test(raw)) {
+            return raw.replace(/^\s*[-*•]\s/, paint("  • ", colors.accent));
+        }
+        return paint(raw, colors.text);
+    }
+    clear() {
+        this.transcript = [];
+        this.scrollOffset = 0;
+        this.scheduleRender();
+    }
+    setStatus(patch) {
+        this.status = { ...this.status, ...patch };
+        this.scheduleRender();
+    }
+    setSessions(sessions) {
+        this.sessions = sessions;
+        this.scheduleRender();
+    }
+    setBusy(busy) {
+        this.busy = busy;
+        if (busy && !this.spinnerTimer) {
+            this.spinnerTimer = setInterval(() => {
+                this.spinnerIndex = (this.spinnerIndex + 1) % SPINNER.length;
+                this.scheduleRender();
+            }, 90);
+        }
+        else if (!busy && this.spinnerTimer) {
+            clearInterval(this.spinnerTimer);
+            this.spinnerTimer = null;
+            this.scheduleRender();
+        }
+    }
+    prompt(placeholder = "Ask Codefixer anything…") {
+        this.placeholder = placeholder;
+        this.input = "";
+        this.cursor = 0;
+        this.hint = "";
+        this.hideSuggestions = false;
+        this.selectedSuggestionIndex = 0;
+        this.awaitingInput = true;
+        this.historyIndex = this.commandHistory.length;
+        return new Promise((resolve) => {
+            this.pendingInput = resolve;
+            this.scheduleRender();
+        });
+    }
+    confirm(question, destructive = false) {
+        this.print(question);
+        this.confirmText = destructive
+            ? 'Type "yes-really" to confirm, anything else to abort'
+            : "Allow? [y/N]";
+        this.confirmInput = "";
+        return new Promise((resolve) => {
+            this.pendingConfirm = resolve;
+            this.scheduleRender();
+        });
+    }
+    onData = (data) => {
+        if (!this.active)
+            return;
+        const s = data.toString("utf8");
+        if (this.pendingConfirm) {
+            this.handleConfirmKey(s);
+        }
+        else if (this.awaitingInput) {
+            this.handleInputKey(s);
+        }
+        else if (s === "\x03" || s === "\x04") {
+            this.onExit?.();
+        }
+    };
+    submitInput() {
+        const resolve = this.pendingInput;
+        const value = this.input.trimEnd();
+        this.awaitingInput = false;
+        this.pendingInput = null;
+        if (value) {
+            this.commandHistory.push(value);
+            this.print(paint("❯ ", colors.accent, BOLD) + paint(value, colors.white, BOLD));
+        }
+        this.input = "";
+        this.cursor = 0;
+        resolve?.(value);
+    }
+    handleEscape(seq) {
+        const suggestions = this.getActiveSuggestions();
+        switch (seq) {
+            case "\x1b[A":
+                if (suggestions && suggestions.items.length > 0) {
+                    this.selectedSuggestionIndex =
+                        (this.selectedSuggestionIndex - 1 + suggestions.items.length) %
+                            suggestions.items.length;
+                    break;
+                }
+                if (this.commandHistory.length) {
+                    this.historyIndex = Math.max(0, this.historyIndex - 1);
+                    this.input = this.commandHistory[this.historyIndex] ?? "";
+                    this.cursor = this.input.length;
+                }
+                break;
+            case "\x1b[B":
+                if (suggestions && suggestions.items.length > 0) {
+                    this.selectedSuggestionIndex =
+                        (this.selectedSuggestionIndex + 1) % suggestions.items.length;
+                    break;
+                }
+                this.historyIndex = Math.min(this.commandHistory.length, this.historyIndex + 1);
+                this.input = this.commandHistory[this.historyIndex] ?? "";
+                this.cursor = this.input.length;
+                break;
+            case "\x1b[C":
+                this.cursor = Math.min(this.input.length, this.cursor + 1);
+                break;
+            case "\x1b[D":
+                this.cursor = Math.max(0, this.cursor - 1);
+                break;
+            case "\x1b[H":
+            case "\x1b[1~":
+                this.cursor = 0;
+                break;
+            case "\x1b[F":
+            case "\x1b[4~":
+                this.cursor = this.input.length;
+                break;
+            case "\x1b[5~":
+            case "\x1b[1;5A":
+                this.scrollOffset = Math.min(Math.max(0, this.transcript.length - 1), this.scrollOffset + 5);
+                break;
+            case "\x1b[6~":
+            case "\x1b[1;5B":
+                this.scrollOffset = Math.max(0, this.scrollOffset - 5);
+                break;
+            case "\x1b[Z":
+                this.hint = `Active agent: ${this.sessions[0] ?? "codefixer"} (default)`;
+                break;
+        }
+    }
+    handleInputKey(s) {
+        let i = 0;
+        while (i < s.length) {
+            const ch = s[i];
+            if (ch === "\x1b") {
+                const match = /^\x1b\[[0-9;?]*[A-Za-z~]/.exec(s.slice(i));
+                if (match) {
+                    this.handleEscape(match[0]);
+                    i += match[0].length;
+                    continue;
+                }
+                if (this.getActiveSuggestions()) {
+                    this.hideSuggestions = true;
+                    this.scheduleRender();
+                    i++;
+                    continue;
+                }
+                i++;
+                continue;
+            }
+            if (ch === "\t") {
+                const suggestions = this.getActiveSuggestions();
+                if (suggestions && suggestions.items.length > 0) {
+                    const chosen = suggestions.items[this.selectedSuggestionIndex % suggestions.items.length];
+                    if (chosen) {
+                        if (suggestions.type === "file") {
+                            const mention = this.getActiveMention();
+                            if (mention) {
+                                const insert = `@${chosen.value}${chosen.isDir ? "" : " "}`;
+                                const before = this.input.slice(0, mention.start);
+                                const after = this.input.slice(this.cursor);
+                                this.input = before + insert + after;
+                                this.cursor = before.length + insert.length;
+                                this.hideSuggestions = false;
+                                this.selectedSuggestionIndex = 0;
+                                this.scheduleRender();
+                            }
+                        }
+                        else {
+                            this.input = chosen.value;
+                            this.cursor = this.input.length;
+                            this.hideSuggestions = false;
+                            this.selectedSuggestionIndex = 0;
+                            this.scheduleRender();
+                        }
+                    }
+                }
+                i++;
+                continue;
+            }
+            if (ch === "\r" || ch === "\n") {
+                const suggestions = this.getActiveSuggestions();
+                if (suggestions && suggestions.items.length > 0) {
+                    const chosen = suggestions.items[this.selectedSuggestionIndex % suggestions.items.length];
+                    if (chosen) {
+                        if (suggestions.type === "file") {
+                            const mention = this.getActiveMention();
+                            if (mention) {
+                                const insert = `@${chosen.value}${chosen.isDir ? "" : " "}`;
+                                const before = this.input.slice(0, mention.start);
+                                const after = this.input.slice(this.cursor);
+                                this.input = before + insert + after;
+                                this.cursor = before.length + insert.length;
+                                this.hideSuggestions = false;
+                                this.selectedSuggestionIndex = 0;
+                                this.scheduleRender();
+                                i++;
+                                continue;
+                            }
+                        }
+                        else if (this.input.startsWith("/") && this.input.trim() !== chosen.value.trim()) {
+                            const cmd = SLASH_COMMANDS.find((c) => c.name === chosen.value.trim());
+                            if (cmd) {
+                                this.input = chosen.value;
+                                this.cursor = this.input.length;
+                                this.scheduleRender();
+                                i++;
+                                continue;
+                            }
+                        }
+                    }
+                }
+                this.submitInput();
+            }
+            else if (ch === "\x03" || ch === "\x04") {
+                if (this.input.length > 0) {
+                    this.input = "";
+                    this.cursor = 0;
+                    this.hideSuggestions = false;
+                }
+                else {
+                    this.onExit?.();
+                }
+            }
+            else if (ch === "\x7f" || ch === "\x08") {
+                if (this.cursor > 0) {
+                    this.input =
+                        this.input.slice(0, this.cursor - 1) + this.input.slice(this.cursor);
+                    this.cursor--;
+                    this.hideSuggestions = false;
+                    this.selectedSuggestionIndex = 0;
+                }
+            }
+            else if (ch === "\x15") {
+                this.input = "";
+                this.cursor = 0;
+                this.hideSuggestions = false;
+            }
+            else if (ch === "\x0b") {
+                this.input = this.input.slice(0, this.cursor);
+            }
+            else if (ch === "\x01") {
+                this.cursor = 0;
+            }
+            else if (ch === "\x05") {
+                this.cursor = this.input.length;
+            }
+            else if (ch === "\x10") {
+                this.hint = "Commands: /messages /history /undo /revert file <path> /help";
+            }
+            else if (ch >= " ") {
+                this.input =
+                    this.input.slice(0, this.cursor) + ch + this.input.slice(this.cursor);
+                this.cursor++;
+                this.hint = "";
+                this.hideSuggestions = false;
+                this.selectedSuggestionIndex = 0;
+            }
+            i++;
+        }
+        this.scheduleRender();
+    }
+    finishConfirm(result) {
+        const resolve = this.pendingConfirm;
+        this.pendingConfirm = null;
+        this.print(paint(result ? "✓ Allowed" : "✗ Cancelled", result ? colors.green : colors.red, BOLD));
+        resolve?.(result);
+    }
+    handleConfirmKey(s) {
+        const destructive = this.confirmText.startsWith("Type");
+        let i = 0;
+        while (i < s.length) {
+            const ch = s[i];
+            if (ch === "\r" || ch === "\n") {
+                if (destructive) {
+                    const resolve = this.pendingConfirm;
+                    const ok = this.confirmInput.trim() === "yes-really";
+                    this.pendingConfirm = null;
+                    this.confirmInput = "";
+                    this.print(paint(ok ? "✓ Confirmed" : "✗ Aborted", ok ? colors.green : colors.red, BOLD));
+                    resolve?.(ok);
+                }
+                else {
+                    this.finishConfirm(false);
+                }
+                i++;
+                continue;
+            }
+            if (destructive) {
+                if (ch === "\x7f" || ch === "\x08") {
+                    this.confirmInput = this.confirmInput.slice(0, -1);
+                }
+                else if (ch >= " ") {
+                    this.confirmInput += ch;
+                }
+            }
+            else {
+                const lower = ch.toLowerCase();
+                if (lower === "y") {
+                    this.finishConfirm(true);
+                    break;
+                }
+                if (lower === "n" || ch === "\x03") {
+                    this.finishConfirm(false);
+                    break;
+                }
+            }
+            i++;
+        }
+        this.scheduleRender();
+    }
+    onResize = () => {
+        if (!this.active)
+            return;
+        this.paintScreen();
+        this.scheduleRender();
+    };
+    paintScreen() {
+        process.stdout.write(CLEAR_SCREEN + HOME + RESET);
+    }
+    scheduleRender() {
+        if (this.renderScheduled || !this.active)
+            return;
+        this.renderScheduled = true;
+        queueMicrotask(() => {
+            this.renderScheduled = false;
+            this.render();
+        });
+    }
+    render() {
+        if (!this.active)
+            return;
+        const cols = Math.max(48, process.stdout.columns || 100);
+        const rows = Math.max(16, process.stdout.rows || 30);
+        const sidebarW = cols >= 96 ? 26 : 0;
+        const mainW = cols - sidebarW;
+        const out = [];
+        const inputTop = Math.max(4, rows - 4);
+        const suggestions = this.getActiveSuggestions();
+        const hasSuggestions = Boolean(suggestions && suggestions.items.length > 0);
+        const maxSuggestions = Math.min(6, Math.max(1, inputTop - 5));
+        const visibleSuggestions = hasSuggestions && suggestions ? suggestions.items.slice(0, maxSuggestions) : [];
+        const suggestionHeight = visibleSuggestions.length > 0 ? visibleSuggestions.length + 2 : 0;
+        const suggestionTop = inputTop - suggestionHeight;
+        const convVisibleLines = Math.max(1, (suggestionHeight > 0 && suggestionTop > 2 ? suggestionTop : inputTop) - 2);
+        const sidebarLines = [];
+        if (sidebarW > 0) {
+            sidebarLines.push(paint(" Sessions", colors.white, BOLD));
+            for (let i = 0; i < this.sessions.length; i++) {
+                const name = this.sessions[i];
+                const isActive = i === 0;
+                sidebarLines.push((isActive ? paint("▸ ", colors.accent) : "  ") +
+                    paint(name, isActive ? colors.text : colors.dim, isActive ? BOLD : ""));
+            }
+            sidebarLines.push(paint("─".repeat(sidebarW - 3), colors.dim));
+            sidebarLines.push(paint(" Shortcuts", colors.white, BOLD));
+            sidebarLines.push(paint("/help     ", colors.accent) + paint("commands", colors.dim));
+            sidebarLines.push(paint("/model    ", colors.accent) + paint("switch model", colors.dim));
+            sidebarLines.push(paint("/history  ", colors.accent) + paint("checkpoints", colors.dim));
+            sidebarLines.push(paint("/undo     ", colors.accent) + paint("revert last", colors.dim));
+            sidebarLines.push(paint("/messages ", colors.accent) + paint("turns", colors.dim));
+            sidebarLines.push(paint("/clear    ", colors.accent) + paint("clean screen", colors.dim));
+            sidebarLines.push(paint("─".repeat(sidebarW - 3), colors.dim));
+            sidebarLines.push(paint(" Status", colors.white, BOLD));
+            sidebarLines.push(paint("Mode: ", colors.dim) + paint(this.status.mode || "Build", colors.text));
+            if (this.status.provider) {
+                sidebarLines.push(paint("Provider: ", colors.dim) + paint(this.status.provider, colors.green));
+            }
+            if (this.status.branch) {
+                sidebarLines.push(paint("Branch: ", colors.dim) + paint(this.status.branch, colors.text));
+            }
+            if (this.version) {
+                sidebarLines.push(paint("─".repeat(sidebarW - 3), colors.dim));
+                sidebarLines.push(paint("v" + this.version, colors.dim));
+            }
+        }
+        for (let y = 1; y <= rows; y++) {
+            let mainText = "";
+            if (y === 1) {
+                const badge = paint(" CODEFIXER ", colors.white, colors.accentBg, BOLD);
+                const spinner = this.busy
+                    ? " " + paint(SPINNER[this.spinnerIndex] + " Thinking…", colors.accent, BOLD)
+                    : " " + paint("● Ready", colors.green);
+                const left = " " + badge + spinner;
+                const right = paint("Ctrl+C exit  ·  /help", colors.dim) + " ";
+                const space = Math.max(1, mainW - 1 - visualWidth(left) - visualWidth(right));
+                mainText = left + " ".repeat(space) + right;
+            }
+            else if (suggestionHeight > 0 && y >= suggestionTop && y < inputTop) {
+                const boxW = Math.max(20, mainW - 4);
+                const title = suggestions?.title ?? " Suggestions ";
+                if (y === suggestionTop) {
+                    const dashes = Math.max(0, boxW - 2 - visualWidth(title) - 2);
+                    mainText =
+                        "  " +
+                            paint("╭──" + title, colors.accent, BOLD) +
+                            paint("─".repeat(dashes) + "╮", colors.accent);
+                }
+                else if (y === inputTop - 1) {
+                    const hint = " [Tab / Enter to select · Esc to close] ";
+                    const dashes = Math.max(0, boxW - 2 - visualWidth(hint));
+                    mainText =
+                        "  " +
+                            paint("╰" + "─".repeat(dashes), colors.accent) +
+                            paint(hint, colors.dim) +
+                            paint("─╯", colors.accent);
+                }
+                else {
+                    const innerW = boxW - 4;
+                    const itemIdx = y - suggestionTop - 1;
+                    const item = visibleSuggestions[itemIdx];
+                    const isSelected = itemIdx ===
+                        (this.selectedSuggestionIndex % visibleSuggestions.length);
+                    const prefix = isSelected ? paint(" ▸ ", colors.accent, BOLD) : "   ";
+                    const label = isSelected
+                        ? paint(item.label, colors.white, BOLD)
+                        : paint(item.label, colors.accent);
+                    const labelLen = visualWidth(item.label);
+                    const padLen = Math.max(1, 28 - labelLen);
+                    const detail = paint(item.detail, isSelected ? colors.text : colors.dim);
+                    const itemContent = prefix + label + " ".repeat(padLen) + detail;
+                    mainText =
+                        "  " +
+                            paint("│", colors.accent) +
+                            " " +
+                            fit(itemContent, innerW) +
+                            " " +
+                            paint("│", colors.accent);
+                }
+            }
+            else if (y >= 2 && y < (suggestionHeight > 0 ? suggestionTop : inputTop)) {
+                const convIndex = y - 2;
+                const isWelcome = this.transcript.length === 0;
+                if (isWelcome) {
+                    if (convIndex < this.welcome.length) {
+                        const line = this.welcome[convIndex] ?? "";
+                        const textWidth = visualWidth(line);
+                        const padLeft = Math.max(2, Math.floor((mainW - 1 - textWidth) / 2));
+                        mainText = " ".repeat(padLeft) + line;
+                    }
+                    else {
+                        mainText = "";
+                    }
+                }
+                else {
+                    if (convIndex === convVisibleLines - 1 && this.hint) {
+                        mainText = "  " + paint(this.hint, colors.orange);
+                    }
+                    else if (convIndex === convVisibleLines - 1 && this.scrollOffset > 0) {
+                        mainText =
+                            "  " +
+                                paint(`▲ Scrolled up (${this.scrollOffset} lines) — PageDown to scroll to bottom`, colors.orange);
+                    }
+                    else {
+                        const total = this.transcript.length;
+                        const start = Math.max(0, total - convVisibleLines - this.scrollOffset);
+                        const lineIdx = start + convIndex;
+                        if (lineIdx >= 0 && lineIdx < total) {
+                            mainText = "  " + this.transcript[lineIdx];
+                        }
+                        else {
+                            mainText = "";
+                        }
+                    }
+                }
+            }
+            else if (y === inputTop) {
+                const boxW = Math.max(20, mainW - 4);
+                const borderColor = this.busy ? colors.accent : colors.dim;
+                mainText = "  " + paint("╭" + "─".repeat(boxW - 2) + "╮", borderColor);
+            }
+            else if (y === inputTop + 1) {
+                const boxW = Math.max(20, mainW - 4);
+                const borderColor = this.busy ? colors.accent : colors.dim;
+                const isConfirm = Boolean(this.pendingConfirm);
+                const mark = isConfirm
+                    ? paint(" ? ", colors.white, colors.orangeBg, BOLD)
+                    : paint(" ❯ ", colors.white, colors.accentBg, BOLD);
+                const innerW = Math.max(1, boxW - 8);
+                let inputFormatted = "";
+                if (isConfirm) {
+                    const val = this.confirmText + (this.confirmInput ? " " + this.confirmInput : "");
+                    inputFormatted = paint(val, colors.orange, BOLD);
+                }
+                else if (this.input) {
+                    const before = this.input.slice(0, this.cursor);
+                    const cursorChar = this.input[this.cursor] ?? " ";
+                    const after = this.input.slice(this.cursor + 1);
+                    inputFormatted =
+                        paint(before, colors.text) +
+                            REVERSE +
+                            cursorChar +
+                            NO_REVERSE +
+                            paint(after, colors.text);
+                }
+                else {
+                    inputFormatted = paint(this.placeholder, colors.dim);
+                }
+                const fittedInput = fit(inputFormatted, innerW);
+                mainText =
+                    "  " +
+                        paint("│", borderColor) +
+                        " " +
+                        mark +
+                        " " +
+                        fittedInput +
+                        " " +
+                        paint("│", borderColor);
+            }
+            else if (y === inputTop + 2) {
+                const boxW = Math.max(20, mainW - 4);
+                const borderColor = this.busy ? colors.accent : colors.dim;
+                mainText = "  " + paint("╰" + "─".repeat(boxW - 2) + "╯", borderColor);
+            }
+            else if (y === rows - 1) {
+                const status = this.status;
+                const modeBadge = paint(` ${status.mode} `, colors.white, colors.panel, BOLD);
+                const providerText = status.provider
+                    ? paint(`● ${status.provider}`, colors.green) + " · "
+                    : "";
+                const modelText = paint(status.model || "default", colors.text, BOLD);
+                const left = "  " + modeBadge + " " + providerText + modelText;
+                const branchPart = status.branch ? `⎇ ${status.branch}  ` : "";
+                const cwdPart = status.cwd ? `📁 ${status.cwd}  ` : "";
+                const right = paint(cwdPart + branchPart + "↑/↓ history", colors.dim) + " ";
+                const space = Math.max(1, mainW - 1 - visualWidth(left) - visualWidth(right));
+                mainText = left + " ".repeat(space) + right;
+            }
+            else {
+                mainText = "";
+            }
+            const fittedMain = fit(mainText, mainW - 1);
+            let sideText = "";
+            if (sidebarW > 0) {
+                const sideContent = sidebarLines[y - 1] ?? "";
+                sideText = paint("│", colors.dim) + " " + fit(sideContent, sidebarW - 2);
+            }
+            out.push(`\x1b[${y};1H${fittedMain}${sideText}${CLEAR_TO_EOL}`);
+        }
+        process.stdout.write(out.join(""));
+    }
+}
+let activeTui = null;
+export function setActiveTui(tui) {
+    activeTui = tui;
+}
+export function getActiveTui() {
+    return activeTui;
+}

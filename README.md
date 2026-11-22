@@ -49,6 +49,38 @@ Codefixer inspects your repository, answers complex architectural questions, and
 
 ## Installation & Setup
 
+### Option 1: Install Globally via GitHub (Recommended)
+
+You can install Codefixer directly from GitHub using npm:
+
+```bash
+npm install -g github:mirmudasir692/codefixer
+```
+
+Now you can run Codefixer from **any project or directory**:
+```bash
+codefixer
+```
+
+To update to the latest version anytime:
+```bash
+npm install -g github:mirmudasir692/codefixer
+```
+
+---
+
+### Option 2: Run Instantly with `npx` (Zero Install)
+
+Run Codefixer directly in any folder without installing it permanently:
+
+```bash
+npx github:mirmudasir692/codefixer
+```
+
+---
+
+### Option 3: Local Development Setup
+
 1. **Clone the repository**:
    ```bash
    git clone https://github.com/mirmudasir692/codefixer.git
@@ -65,19 +97,18 @@ Codefixer inspects your repository, answers complex architectural questions, and
    npm run build
    ```
 
-4. **Start Codefixer**:
+4. **Link globally for local development**:
    ```bash
-   npm start
-   # or in development mode:
-   npm run dev
+   npm link
+   # now 'codefixer' command points to your local repo!
    ```
 
-To install Codefixer globally on your machine:
-```bash
-npm install -g .
-# then run anywhere:
-codefixer
-```
+5. **Start Codefixer**:
+   ```bash
+   codefixer
+   # or run directly with tsx:
+   npm run dev
+   ```
 
 ---
 
