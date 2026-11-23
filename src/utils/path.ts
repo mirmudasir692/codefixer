@@ -14,9 +14,19 @@ export function assertInsideProject(target: string, rootDir: string = process.cw
 }
 
 export function mutationPath(args: unknown): string {
-  if (args && typeof args === "object" && "path" in args) {
-    const p = (args as { path: unknown }).path;
-    return typeof p === "string" ? p : "";
+  if (args && typeof args === "object") {
+    if ("path" in args && typeof (args as { path: unknown }).path === "string") {
+      return (args as { path: string }).path;
+    }
+    if (
+      "destination" in args &&
+      typeof (args as { destination: unknown }).destination === "string"
+    ) {
+      return (args as { destination: string }).destination;
+    }
+    if ("source" in args && typeof (args as { source: unknown }).source === "string") {
+      return (args as { source: string }).source;
+    }
   }
   return "";
 }

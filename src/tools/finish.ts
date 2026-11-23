@@ -11,13 +11,18 @@ export const finishTool = llm.defineTool({
   validator: z.object({
     summary: z.string().describe("One-sentence summary of what you accomplished"),
     files_changed: z.array(z.string()).describe("Paths of files you created or modified"),
+    result: z
+      .string()
+      .optional()
+      .describe("Optional structured result summary or serialized JSON metadata"),
   }),
-  tool: async ({ summary, files_changed }) => {
+  tool: async ({ summary, files_changed, result }) => {
     return {
       ok: true,
       acknowledged: true,
       summary,
       files_changed,
+      result: result ?? null,
       error: null,
     };
   },

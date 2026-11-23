@@ -13,6 +13,13 @@ const MUTATING_TOOLS = new Set([
   "insert_file",
   "replace_lines",
   "delete_file",
+  "move_file",
+  "rename_file",
+  "copy_file",
+  "apply_patch",
+  "multi_edit",
+  "undo_edit",
+  "edit_notebook",
 ]);
 
 export async function runTurn(userInput: string, history: string): Promise<TurnResult> {
